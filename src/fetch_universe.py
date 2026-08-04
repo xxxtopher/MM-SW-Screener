@@ -34,21 +34,15 @@ OUTPUT_CSV = REPO_ROOT / "data" / "universe.csv"
 META_JSON = REPO_ROOT / "data" / "universe_meta.json"
 
 # IWV = iShares Russell 3000 ETF, portfolioId=239714
-# Two known URL patterns are tried in order - iShares has changed this
-# endpoint's structure before, so both are kept as attempts.
-ISHARES_URLS = [
-    (
-        "https://www.blackrock.com/varnish-api/blk-one01-product-data/"
-        "product-data/api/v1/get-fund-document"
-        "?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=us-ishares"
-        "&locale=en_US&portfolioId=239714&component=fundDownload&userType=individual"
-    ),
-    (
-        "https://www.ishares.com/us/products/239714/"
-        "ishares-russell-3000-etf/1467271812596.ajax"
-        "?fileType=csv&fileName=IWV_holdings&dataType=fund"
-    ),
-]
+# This endpoint returns the holdings file as Excel SpreadsheetML XML
+# (a plain-text XML spreadsheet format), not CSV - handled by
+# _parse_spreadsheetml_xml below.
+ISHARES_URL = (
+    "https://www.blackrock.com/varnish-api/blk-one01-product-data/"
+    "product-data/api/v1/get-fund-document"
+    "?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=us-ishares"
+    "&locale=en_US&portfolioId=239714&component=fundDownload&userType=individual"
+)
 
 HEADERS = {
     # Some vendor endpoints reject requests with no browser-like UA.
@@ -67,11 +61,70 @@ WIKI_SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 # Primary source: iShares IWV holdings CSV
 # ---------------------------------------------------------------------------
 
+SS_NS = {"ss": "urn:schemas-microsoft-com:office:spreadsheet"}
+
+
+def _parse_spreadsheetml_xml(raw_text: str) -> pd.DataFrame:
+    """
+    Parses an Excel "SpreadsheetML" XML file (the format iShares' fund
+    document endpoint currently returns) into a DataFrame, using the row
+    that starts with "Ticker" as the header.
+
+    SpreadsheetML represents each row as <ss:Row> containing <ss:Cell>
+    elements, each holding a <ss:Data> text value. Cells can carry an
+    ss:Index attribute to skip blank columns, so column position has to be
+    tracked explicitly rather than assumed from element order.
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(raw_text)
+    rows_out: list[list[str]] = []
+
+    for row in root.iter("{urn:schemas-microsoft-com:office:spreadsheet}Row"):
+        cells = row.findall("ss:Cell", SS_NS)
+        row_values: dict[int, str] = {}
+        col_cursor = 0
+        for cell in cells:
+            idx_attr = cell.get("{urn:schemas-microsoft-com:office:spreadsheet}Index")
+            if idx_attr is not None:
+                col_cursor = int(idx_attr) - 1  # ss:Index is 1-based
+            data_el = cell.find("ss:Data", SS_NS)
+            row_values[col_cursor] = (data_el.text or "") if data_el is not None else ""
+            col_cursor += 1
+
+        if not row_values:
+            continue
+        max_col = max(row_values.keys())
+        rows_out.append([row_values.get(c, "") for c in range(max_col + 1)])
+
+    header_idx = None
+    for i, r in enumerate(rows_out):
+        if r and str(r[0]).strip() == "Ticker":
+            header_idx = i
+            break
+
+    if header_idx is None:
+        raise ValueError(
+            "Could not locate a row starting with 'Ticker' in the parsed "
+            "SpreadsheetML XML (file format may have changed)."
+        )
+
+    header = rows_out[header_idx]
+    data_rows = rows_out[header_idx + 1:]
+    # Pad/truncate rows to header length so DataFrame construction doesn't choke
+    ncols = len(header)
+    data_rows = [r[:ncols] + [""] * (ncols - len(r)) for r in data_rows]
+
+    df = pd.DataFrame(data_rows, columns=header)
+    return df
+
+
 def _find_holdings_csv_text(raw_text: str) -> str:
     """
-    Given raw response text, locates the row starting the actual holdings
-    table (header row starts with "Ticker,") and returns everything from
-    that row onward. Raises ValueError (with a debug snippet) if not found.
+    Given raw CSV response text, locates the row starting the actual
+    holdings table (header row starts with "Ticker,") and returns
+    everything from that row onward. Used only for the (unlikely, but
+    possible) case iShares reverts to serving plain CSV again.
     """
     lines = raw_text.splitlines()
     header_idx = None
@@ -81,12 +134,7 @@ def _find_holdings_csv_text(raw_text: str) -> str:
             break
 
     if header_idx is None:
-        snippet = raw_text[:300].replace("\n", "\\n")
-        raise ValueError(
-            "Could not locate holdings header row in response "
-            f"(file format may have changed). First 300 chars of response: "
-            f"{snippet!r}"
-        )
+        raise ValueError("Could not locate 'Ticker,' header row in CSV text.")
 
     return "\n".join(lines[header_idx:])
 
@@ -96,28 +144,26 @@ def fetch_ishares_holdings() -> pd.DataFrame:
     Downloads the IWV holdings file and returns a cleaned DataFrame with
     columns: ticker, name, sector, asset_class, weight_pct
 
-    Tries each URL in ISHARES_URLS in order. Raises on total failure so the
-    caller can fall back to the Wikipedia route. The raised error includes
-    a snippet of the actual response body for debugging.
+    Raises on any failure so the caller can fall back to the Wikipedia
+    route. The raised error includes a snippet of the actual response body
+    for debugging.
     """
-    attempt_errors = []
+    resp = requests.get(ISHARES_URL, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    raw_text = resp.content.decode("utf-8-sig", errors="replace")
 
-    for url in ISHARES_URLS:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=30)
-            resp.raise_for_status()
-            raw_text = resp.content.decode("utf-8-sig", errors="replace")
-            csv_body = _find_holdings_csv_text(raw_text)
-            df = pd.read_csv(io.StringIO(csv_body), thousands=",")
-            break  # success - stop trying further URLs
-        except Exception as exc:  # noqa: BLE001 - try next URL
-            attempt_errors.append(f"{url} -> {exc}")
-            df = None
-
-    if df is None:
+    stripped = raw_text.lstrip()
+    try:
+        if stripped.startswith("<?xml") or "<ss:Workbook" in stripped[:500]:
+            df = _parse_spreadsheetml_xml(raw_text)
+        else:
+            df = pd.read_csv(io.StringIO(_find_holdings_csv_text(raw_text)), thousands=",")
+    except Exception as exc:
+        snippet = raw_text[:300].replace("\n", "\\n")
         raise ValueError(
-            "All iShares URL attempts failed:\n" + "\n".join(attempt_errors)
-        )
+            f"Failed to parse iShares response: {exc}. "
+            f"First 300 chars of response: {snippet!r}"
+        ) from exc
 
     # Normalize column names (iShares sometimes tweaks casing/spacing).
     df.columns = [c.strip().lower().replace(" ", "_").replace("(%)", "pct") for c in df.columns]
