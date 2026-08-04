@@ -34,12 +34,21 @@ OUTPUT_CSV = REPO_ROOT / "data" / "universe.csv"
 META_JSON = REPO_ROOT / "data" / "universe_meta.json"
 
 # IWV = iShares Russell 3000 ETF, portfolioId=239714
-ISHARES_URL = (
-    "https://www.blackrock.com/varnish-api/blk-one01-product-data/"
-    "product-data/api/v1/get-fund-document"
-    "?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=us-ishares"
-    "&locale=en_US&portfolioId=239714&component=fundDownload&userType=individual"
-)
+# Two known URL patterns are tried in order - iShares has changed this
+# endpoint's structure before, so both are kept as attempts.
+ISHARES_URLS = [
+    (
+        "https://www.blackrock.com/varnish-api/blk-one01-product-data/"
+        "product-data/api/v1/get-fund-document"
+        "?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=us-ishares"
+        "&locale=en_US&portfolioId=239714&component=fundDownload&userType=individual"
+    ),
+    (
+        "https://www.ishares.com/us/products/239714/"
+        "ishares-russell-3000-etf/1467271812596.ajax"
+        "?fileType=csv&fileName=IWV_holdings&dataType=fund"
+    ),
+]
 
 HEADERS = {
     # Some vendor endpoints reject requests with no browser-like UA.
@@ -58,21 +67,13 @@ WIKI_SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 # Primary source: iShares IWV holdings CSV
 # ---------------------------------------------------------------------------
 
-def fetch_ishares_holdings() -> pd.DataFrame:
+def _find_holdings_csv_text(raw_text: str) -> str:
     """
-    Downloads the IWV holdings file and returns a cleaned DataFrame with
-    columns: ticker, name, sector, asset_class, weight_pct
-
-    Raises on any failure so the caller can fall back to the Wikipedia route.
+    Given raw response text, locates the row starting the actual holdings
+    table (header row starts with "Ticker,") and returns everything from
+    that row onward. Raises ValueError (with a debug snippet) if not found.
     """
-    resp = requests.get(ISHARES_URL, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-
-    raw_text = resp.content.decode("utf-8-sig", errors="replace")
     lines = raw_text.splitlines()
-
-    # The iShares holdings CSV has several metadata/disclaimer rows before
-    # the actual holdings table. The real header row starts with "Ticker".
     header_idx = None
     for i, line in enumerate(lines):
         if line.strip().startswith("Ticker,"):
@@ -80,13 +81,43 @@ def fetch_ishares_holdings() -> pd.DataFrame:
             break
 
     if header_idx is None:
+        snippet = raw_text[:300].replace("\n", "\\n")
         raise ValueError(
-            "Could not locate holdings header row in iShares CSV "
-            "(file format may have changed)."
+            "Could not locate holdings header row in response "
+            f"(file format may have changed). First 300 chars of response: "
+            f"{snippet!r}"
         )
 
-    csv_body = "\n".join(lines[header_idx:])
-    df = pd.read_csv(io.StringIO(csv_body), thousands=",")
+    return "\n".join(lines[header_idx:])
+
+
+def fetch_ishares_holdings() -> pd.DataFrame:
+    """
+    Downloads the IWV holdings file and returns a cleaned DataFrame with
+    columns: ticker, name, sector, asset_class, weight_pct
+
+    Tries each URL in ISHARES_URLS in order. Raises on total failure so the
+    caller can fall back to the Wikipedia route. The raised error includes
+    a snippet of the actual response body for debugging.
+    """
+    attempt_errors = []
+
+    for url in ISHARES_URLS:
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            raw_text = resp.content.decode("utf-8-sig", errors="replace")
+            csv_body = _find_holdings_csv_text(raw_text)
+            df = pd.read_csv(io.StringIO(csv_body), thousands=",")
+            break  # success - stop trying further URLs
+        except Exception as exc:  # noqa: BLE001 - try next URL
+            attempt_errors.append(f"{url} -> {exc}")
+            df = None
+
+    if df is None:
+        raise ValueError(
+            "All iShares URL attempts failed:\n" + "\n".join(attempt_errors)
+        )
 
     # Normalize column names (iShares sometimes tweaks casing/spacing).
     df.columns = [c.strip().lower().replace(" ", "_").replace("(%)", "pct") for c in df.columns]
@@ -148,7 +179,12 @@ def fetch_wikipedia_sp_universe() -> pd.DataFrame:
         (WIKI_SP400_URL, "Symbol"),
         (WIKI_SP600_URL, "Symbol"),
     ]:
-        tables = pd.read_html(url)
+        # pandas.read_html(url) uses urllib with no User-Agent by default,
+        # which Wikipedia blocks with a 403. Fetch the HTML ourselves via
+        # requests (with a browser-like UA) and hand the text to read_html.
+        page_resp = requests.get(url, headers=HEADERS, timeout=30)
+        page_resp.raise_for_status()
+        tables = pd.read_html(io.StringIO(page_resp.text))
         # The constituents table is typically the first table on each page.
         table = tables[0]
         table.columns = [str(c).strip() for c in table.columns]
