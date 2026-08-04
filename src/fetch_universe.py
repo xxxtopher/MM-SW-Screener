@@ -61,7 +61,20 @@ WIKI_SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 # Primary source: iShares IWV holdings CSV
 # ---------------------------------------------------------------------------
 
+import re
+
 SS_NS = {"ss": "urn:schemas-microsoft-com:office:spreadsheet"}
+
+# Matches a bare "&" that is NOT already part of a valid XML entity
+# reference (&amp; &lt; &gt; &quot; &apos; &#123; &#x1F;). Vendor CSV/XML
+# exports frequently contain raw "&" in company names (e.g. "AT&T",
+# "Johnson & Johnson") without proper escaping, which breaks strict XML
+# parsers with a "not well-formed (invalid token)" error.
+_BARE_AMPERSAND_RE = re.compile(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)")
+
+
+def _sanitize_xml_text(raw_text: str) -> str:
+    return _BARE_AMPERSAND_RE.sub("&amp;", raw_text)
 
 
 def _parse_spreadsheetml_xml(raw_text: str) -> pd.DataFrame:
@@ -77,7 +90,7 @@ def _parse_spreadsheetml_xml(raw_text: str) -> pd.DataFrame:
     """
     import xml.etree.ElementTree as ET
 
-    root = ET.fromstring(raw_text)
+    root = ET.fromstring(_sanitize_xml_text(raw_text))
     rows_out: list[list[str]] = []
 
     for row in root.iter("{urn:schemas-microsoft-com:office:spreadsheet}Row"):
