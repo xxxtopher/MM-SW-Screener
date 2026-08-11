@@ -2,8 +2,8 @@
 vcp.py
 
 Implements criterion 5 (Volatility Contraction Pattern): weekly price range
-monotonically decreasing over the last 4 weeks, with weekly volume also
-monotonically decreasing over the same 4 weeks.
+OR weekly volume monotonically decreasing over the last 4 weeks (loosened
+2026-08-10 from requiring both simultaneously to requiring either one).
 
 Designed to run ONLY on the survivors of criteria 1-4 (from criteria.py),
 not the full universe - this is the most computationally expensive check,
@@ -112,9 +112,14 @@ def compute_vcp(daily_df: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
         range_contracting = all(ranges[i] > ranges[i + 1] for i in range(len(ranges) - 1))
         volume_contracting = all(volumes[i] > volumes[i + 1] for i in range(len(volumes) - 1))
 
+        # Loosened 2026-08-10: require EITHER range OR volume to contract
+        # monotonically over the window, not both simultaneously. Was:
+        # range_contracting and volume_contracting.
         rows.append({
             "ticker": ticker,
-            "crit5_vcp": bool(range_contracting and volume_contracting),
+            "crit5_vcp": bool(range_contracting or volume_contracting),
+            "range_contracting": bool(range_contracting),
+            "volume_contracting": bool(volume_contracting),
             "weekly_ranges": ranges,
             "weekly_volumes": volumes,
             "n_complete_weeks_available": len(last_n),
