@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trend Screen — Minervini / Weinstein Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg: #0A0D10;
+    --panel: #12171C;
+    --panel-2: #171D24;
+    --border: #232B33;
+    --text: #E7ECEF;
+    --muted: #8B96A3;
+    --bull: #34D399;
+    --bear: #F2545B;
+    --accent: #F5A524;
+    --accent-dim: rgba(245,165,36,0.14);
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a{ color: inherit; }
+
+  .wrap{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 28px;
+  }
+
+  .brand-eyebrow{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  h1{
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle{
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 46ch;
+  }
+
+  .header-right{
+    display:flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+  }
+
+  #refreshBtn{
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #0A0D10;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    cursor: pointer;
+    transition: filter 0.15s ease, transform 0.1s ease;
+  }
+  #refreshBtn:hover{ filter: brightness(1.08); }
+  #refreshBtn:active{ transform: translateY(1px); }
+  #refreshBtn:focus-visible{ outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  #lastRun{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ---------- Funnel strip (signature element) ---------- */
+  .funnel{
+    display:flex;
+    gap: 2px;
+    margin-bottom: 32px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .funnel-stage{
+    flex: 1;
+    background: var(--panel);
+    padding: 16px 18px;
+    position: relative;
+  }
+
+  .funnel-stage + .funnel-stage{ border-left: 1px solid var(--border); }
+
+  .funnel-stage::after{
+    content: "→";
+    position: absolute;
+    right: -1px;
+    top: 50%;
+    transform: translate(50%, -50%);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg);
+    width: 20px;
+    height: 20px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    z-index: 1;
+  }
+  .funnel-stage:last-child::after{ content: none; }
+
+  .funnel-stage.final{ background: var(--accent-dim); }
+
+  .funnel-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .funnel-value{
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 26px;
+  }
+
+  .funnel-stage.final .funnel-value{ color: var(--accent); }
+
+  .funnel-sub{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* ---------- Stock grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 18px;
+  }
+
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 18px 8px;
+    transition: border-color 0.15s ease;
+  }
+  .card:hover{ border-color: #34404B; }
+
+  .card-head{
+    display:flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+
+  .ticker{
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.01em;
+  }
+
+  .close-price{
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--text);
+  }
+
+  .stat-row{
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .stat{
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .stat b{
+    display:block;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .stat.rs b{ color: var(--bull); }
+
+  .chart-container{
+    height: 150px;
+    margin: 0 -18px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---------- Empty / loading states ---------- */
+  .state-message{
+    font-family: var(--font-mono);
+    color: var(--muted);
+    font-size: 14px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 40px 24px;
+    text-align: center;
+  }
+  .state-message strong{ color: var(--text); display:block; margin-bottom: 6px; font-size: 15px; }
+
+  footer{
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; }
+  }
+
+  @media (max-width: 600px){
+    .funnel{ flex-direction: column; }
+    .funnel-stage::after{ content: "↓"; right: 50%; top: -1px; transform: translate(50%, -50%); }
+    header{ flex-direction: column; }
+    .header-right{ align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="brand-eyebrow">Trend Template · Stage 2 · VCP</div>
+      <h1>Trend Screen</h1>
+      <div class="subtitle">Daily technical scan of the Russell 3000, built on Minervini's Trend Template and Stan Weinstein's Stage Analysis, narrowed to stocks showing volatility contraction.</div>
+    </div>
+    <div class="header-right">
+      <button id="refreshBtn">Refresh results</button>
+      <div id="lastRun">—</div>
+    </div>
+  </header>
+
+  <div class="funnel" id="funnel">
+    <div class="funnel-stage">
+      <div class="funnel-label">Universe</div>
+      <div class="funnel-value" id="statUniverse">—</div>
+      <div class="funnel-sub">Russell 3000 constituents</div>
+    </div>
+    <div class="funnel-stage">
+      <div class="funnel-label">Trend Template</div>
+      <div class="funnel-value" id="statCriteria">—</div>
+      <div class="funnel-sub">Stage 2 · above rising 150/200 SMA</div>
+    </div>
+    <div class="funnel-stage final">
+      <div class="funnel-label">VCP Setups</div>
+      <div class="funnel-value" id="statFinal">—</div>
+      <div class="funnel-sub">4-week range &amp; volume contraction</div>
+    </div>
+  </div>
+
+  <div id="content">
+    <div class="state-message">Loading results…</div>
+  </div>
+
+  <footer>
+    Criteria: close above rising 50/150/200-day SMA · at least 30% above the 52-week low and within 30% of the 52-week high ·
+    3-month return beating the S&amp;P 500 · 4-week weekly range and volume both contracting.
+    Results refresh automatically after each US market close. This is not investment advice.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const RESULTS_URL = 'output/screen_results.json';
+
+  const el = {
+    content: document.getElementById('content'),
+    lastRun: document.getElementById('lastRun'),
+    statUniverse: document.getElementById('statUniverse'),
+    statCriteria: document.getElementById('statCriteria'),
+    statFinal: document.getElementById('statFinal'),
+    refreshBtn: document.getElementById('refreshBtn'),
+  };
+
+  function fmtPct(x){
+    if (x === null || x === undefined || Number.isNaN(x)) return '—';
+    return (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%';
+  }
+
+  function fmtPrice(x){
+    if (x === null || x === undefined || Number.isNaN(x)) return '—';
+    return '$' + x.toFixed(2);
+  }
+
+  function fmtDate(iso){
+    try{
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch(e){ return iso; }
+  }
+
+  function pctFromHighLow(close, low, high){
+    if (!low || !high || high === low) return null;
+    return (close - low) / (high - low);
+  }
+
+  function renderEmpty(){
+    el.content.innerHTML = `
+      <div class="state-message">
+        <strong>No setups today</strong>
+        No stocks currently satisfy every criterion — Trend Template, Stage 2, and a tightening VCP base all at once.
+        Check back after the next close.
+      </div>`;
+  }
+
+  function renderError(err){
+    el.content.innerHTML = `
+      <div class="state-message">
+        <strong>Couldn't load results</strong>
+        ${String(err)}
+      </div>`;
+  }
+
+  function renderStocks(stocks){
+    el.content.innerHTML = `<div class="grid" id="grid"></div>`;
+    const grid = document.getElementById('grid');
+
+    stocks.forEach(stock => {
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const rsDelta = (stock.ret_3m !== null && stock.spx_ret_3m !== null)
+        ? stock.ret_3m - stock.spx_ret_3m : null;
+
+      const rangePos = pctFromHighLow(stock.close, stock.low_52w, stock.high_52w);
+
+      card.innerHTML = `
+        <div class="card-head">
+          <div class="ticker">${stock.ticker}</div>
+          <div class="close-price">${fmtPrice(stock.close)}</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat">52W range<b>${rangePos !== null ? (rangePos*100).toFixed(0) + '%' : '—'}</b></div>
+          <div class="stat">3M return<b>${fmtPct(stock.ret_3m)}</b></div>
+          <div class="stat rs">vs SPX<b>${fmtPct(rsDelta)}</b></div>
+        </div>
+        <div class="chart-container" id="chart-${stock.ticker}"></div>
+      `;
+      grid.appendChild(card);
+
+      if (window.LightweightCharts && stock.chart && stock.chart.length){
+        const container = card.querySelector(`#chart-${stock.ticker}`);
+        const chart = LightweightCharts.createChart(container, {
+          width: container.clientWidth,
+          height: 150,
+          layout: {
+            background: { color: 'transparent' },
+            textColor: '#8B96A3',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 10,
+          },
+          grid: {
+            vertLines: { visible: false },
+            horzLines: { color: '#1A2028' },
+          },
+          rightPriceScale: { borderColor: '#232B33' },
+          timeScale: { borderColor: '#232B33', timeVisible: false },
+          crosshair: { mode: 0 },
+        });
+
+        const series = chart.addCandlestickSeries({
+          upColor: '#34D399',
+          downColor: '#F2545B',
+          borderVisible: false,
+          wickUpColor: '#34D399',
+          wickDownColor: '#F2545B',
+        });
+
+        series.setData(stock.chart.map(bar => ({
+          time: bar.date,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+        })));
+
+        chart.timeScale().fitContent();
+
+        new ResizeObserver(entries => {
+          const { width } = entries[0].contentRect;
+          chart.applyOptions({ width });
+        }).observe(container);
+      }
+    });
+  }
+
+  async function loadResults(){
+    el.content.innerHTML = `<div class="state-message">Loading results…</div>`;
+    try{
+      const res = await fetch(RESULTS_URL + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${RESULTS_URL}`);
+      const data = await res.json();
+
+      el.lastRun.textContent = 'Last run: ' + fmtDate(data.generated_at_utc);
+      el.statUniverse.textContent = data.universe_size ?? '—';
+      el.statCriteria.textContent = data.criteria_1_4_pass_count ?? '—';
+      el.statFinal.textContent = data.final_pass_count ?? '—';
+
+      if (!data.stocks || data.stocks.length === 0){
+        renderEmpty();
+      } else {
+        renderStocks(data.stocks);
+      }
+    } catch(err){
+      renderError(err.message || err);
+    }
+  }
+
+  el.refreshBtn.addEventListener('click', loadResults);
+  loadResults();
+})();
+</script>
+</body>
+</html>

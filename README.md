@@ -5,21 +5,22 @@ Template / VCP concepts and Stan Weinstein's Stage Analysis.
 
 ## Status
 
-🚧 Under construction. Current pieces:
+✅ Full pipeline + dashboard built. Current pieces:
 
 - [x] Repo skeleton
 - [x] `src/fetch_universe.py` - sources the ticker universe (S&P 500 + Russell
       3000 via iShares IWV holdings, with a Wikipedia S&P fallback)
 - [x] `.github/workflows/refresh_universe.yml` - monthly universe refresh
-- [ ] `src/fetch_prices.py` - batch daily OHLCV download via yfinance
-- [ ] `src/criteria.py` - criteria 1-4 (SMA trend template, 52-week range,
+- [x] `src/fetch_prices.py` - batch daily OHLCV download via yfinance
+- [x] `src/criteria.py` - criteria 1-4 (SMA trend template, 52-week range,
       relative strength vs SPX)
-- [ ] `src/vcp.py` - criteria 5 (weekly range + volume contraction / VCP)
-- [ ] `src/screen.py` - orchestrates the full pipeline
-- [ ] `.github/workflows/daily_screen.yml` - fill in real logic (currently a
-      placeholder)
-- [ ] Dashboard (static site reading `output/screen_results.json`, with
-      per-stock mini price charts)
+- [x] `src/vcp.py` - criteria 5 (weekly range + volume contraction / VCP)
+- [x] `src/screen.py` - orchestrates the full pipeline, writes
+      `output/screen_results.json`
+- [x] `.github/workflows/daily_screen.yml` - runs fetch_prices.py + screen.py
+      daily after market close, auto-commits results
+- [x] `index.html` - dashboard (static page reading
+      `output/screen_results.json`, with per-stock mini candlestick charts)
 
 ## Screening criteria
 
