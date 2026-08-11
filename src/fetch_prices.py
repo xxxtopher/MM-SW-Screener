@@ -38,6 +38,9 @@ BATCH_SIZE = 150        # tickers per yf.download() call
 BATCH_PAUSE_SEC = 2.0   # pause between batches to avoid rate limiting
 DOWNLOAD_THREADS = True
 
+RETRY_COOLDOWN_SEC = 20.0  # longer pause before retrying failed tickers
+RETRY_BATCH_SIZE = 25      # smaller batches on retry, gentler on rate limits
+
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 
 
@@ -145,6 +148,37 @@ def main() -> None:
             time.sleep(BATCH_PAUSE_SEC)
 
     combined = pd.concat(all_frames, ignore_index=True) if all_frames else pd.DataFrame()
+
+    # Retry pass: some failures (e.g. YFRateLimitError) are transient, not
+    # real "no data" cases. Wait a bit longer than the normal inter-batch
+    # pause, then retry the failed tickers once in small chunks.
+    if all_failed:
+        unique_failed = sorted(set(all_failed))
+        print(f"[fetch_prices] Retrying {len(unique_failed)} failed tickers after a cooldown...")
+        time.sleep(RETRY_COOLDOWN_SEC)
+
+        retry_frames = []
+        still_failed = []
+        for retry_batch in chunk(unique_failed, RETRY_BATCH_SIZE):
+            try:
+                df_retry, failed_retry = download_batch(retry_batch)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[fetch_prices] Retry batch failed entirely: {exc}")
+                df_retry = pd.DataFrame(columns=["ticker", "date", "open", "high", "low", "close", "volume"])
+                failed_retry = retry_batch
+
+            if not df_retry.empty:
+                retry_frames.append(df_retry)
+            still_failed.extend(failed_retry)
+            time.sleep(BATCH_PAUSE_SEC)
+
+        recovered = set(unique_failed) - set(still_failed)
+        if recovered:
+            print(f"[fetch_prices] Recovered {len(recovered)} tickers on retry: {sorted(recovered)}")
+            all_frames.extend(retry_frames)
+            combined = pd.concat(all_frames, ignore_index=True)
+
+        all_failed = still_failed
 
     if combined.empty:
         raise RuntimeError(

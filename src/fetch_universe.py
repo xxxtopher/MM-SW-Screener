@@ -56,6 +56,19 @@ WIKI_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 WIKI_SP400_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
 WIKI_SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 
+# Known dual/multi-class tickers where iShares' no-separator format
+# doesn't match what yfinance/Yahoo Finance expects. Discovered from
+# real fetch_prices.py failure logs - add more here as they turn up.
+TICKER_OVERRIDES = {
+    "BRKB": "BRK-B",
+    "BFA": "BF-A",
+    "BFB": "BF-B",
+    "GEFB": "GEF-B",
+    "LENB": "LEN-B",
+    "MOGA": "MOG-A",
+    "UHALB": "UHAL-B",
+}
+
 
 # ---------------------------------------------------------------------------
 # Primary source: iShares IWV holdings CSV
@@ -208,6 +221,15 @@ def fetch_ishares_holdings() -> pd.DataFrame:
     # (e.g. rights/warrants "XYZ.WS", foreign ords) - keep it simple/clean
     # for a yfinance-driven screener. Adjust this filter later if needed.
     df = df[df["ticker"].str.match(r"^[A-Z]{1,6}$")]
+
+    # iShares exports dual-class share tickers with no separator (e.g.
+    # "BRKB"), but yfinance/Yahoo expects a dash before the class letter
+    # (e.g. "BRK-B"). Deliberately using an explicit lookup rather than a
+    # regex heuristic - inferring "insert a dash before the trailing
+    # letter" would wrongly mangle ordinary tickers that happen to end in
+    # A/B/etc. (e.g. "META" is not "MET-A"). Extend this map as you spot
+    # more misses in fetch_failures_*.csv.
+    df["ticker"] = df["ticker"].replace(TICKER_OVERRIDES)
 
     keep_cols = [c for c in ["ticker", "name", "sector", "weight_pct"] if c in df.columns]
     df = df[keep_cols].drop_duplicates(subset="ticker").reset_index(drop=True)

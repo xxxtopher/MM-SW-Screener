@@ -1,6 +1,6 @@
 {
-  "fetched_at_utc": "2026-08-04T06:21:01.518183+00:00",
-  "source_used": "wikipedia_sp500_400_600_fallback",
-  "ticker_count": 1506,
-  "primary_source_error": "Failed to parse iShares response: not well-formed (invalid token): line 47, column 138. First 300 chars of response: '<?xml version=\"1.0\"?>\\\\n<ss:Workbook xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">\\\\n<ss:Styles>\\\\n<ss:Style ss:ID=\"Default\">\\\\n<ss:Alignment ss:Horizontal=\"Left\"/>\\\\n</ss:Style>\\\\n<ss:Style ss:ID=\"wraptext\">\\\\n<ss:Alignment ss:Horizontal=\"Left\" ss:WrapText=\"1\"/>\\\\n<ss:Font ss:Italic=\"1\"/>\\\\n</ss:Style>\\\\n<s'"
+  "fetched_at_utc": "2026-08-09T19:07:34.951144+00:00",
+  "source_used": "ishares_iwv",
+  "ticker_count": 2582,
+  "primary_source_error": null
 }

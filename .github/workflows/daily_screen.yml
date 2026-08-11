@@ -24,8 +24,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # NOTE: fetch_prices.py, criteria.py, vcp.py, screen.py are not
-      # implemented yet - this workflow is a placeholder until those
-      # pieces are built.
-      - name: Run screener (placeholder)
-        run: echo "TODO: python src/screen.py"
+      - name: Fetch latest prices
+        run: python src/fetch_prices.py
+
+      - name: Run screener
+        run: python src/screen.py
+
+      - name: Commit updated results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/ data/daily_prices/latest.parquet
+          git diff --cached --quiet || git commit -m "chore: daily screen run [automated]"
+          git push
