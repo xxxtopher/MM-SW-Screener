@@ -41,8 +41,8 @@ RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
 RS_LOOKBACK_DAYS = 63         # ~3 trading months, for relative strength vs SPX
 
-ABOVE_LOW_MULT = 1.30         # price >= 1.30 x 52wk low
-BELOW_HIGH_MULT = 0.70        # price >= 0.70 x 52wk high (i.e. within 30% of the high)
+ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low (widened from 1.30 on 2026-08-10)
+BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high (widened from 0.70)
 
 SPX_TICKER = "^GSPC"
 
