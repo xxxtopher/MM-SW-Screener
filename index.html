@@ -296,10 +296,15 @@
       <div class="funnel-value" id="statCriteria">—</div>
       <div class="funnel-sub">Stage 2 · above rising 150/200 SMA</div>
     </div>
-    <div class="funnel-stage final">
+    <div class="funnel-stage">
       <div class="funnel-label">VCP Setups</div>
+      <div class="funnel-value" id="statVcp">—</div>
+      <div class="funnel-sub">4-week range or volume contraction</div>
+    </div>
+    <div class="funnel-stage final">
+      <div class="funnel-label">Liquid Setups</div>
       <div class="funnel-value" id="statFinal">—</div>
-      <div class="funnel-sub">4-week range &amp; volume contraction</div>
+      <div class="funnel-sub" id="liquiditySub">market cap &amp; volume filter</div>
     </div>
   </div>
 
@@ -308,8 +313,9 @@
   </div>
 
   <footer>
-    Criteria: close above rising 50/150/200-day SMA · at least 30% above the 52-week low and within 30% of the 52-week high ·
-    3-month return beating the S&amp;P 500 · 4-week weekly range and volume both contracting.
+    Criteria: close above rising 50/150/200-day SMA · at least 20% above the 52-week low and within 40% of the 52-week high ·
+    3-month return beating the S&amp;P 500 · 4-week weekly range or volume contracting ·
+    market cap and 3-month average volume above the liquidity thresholds shown above.
     Results refresh automatically after each US market close. This is not investment advice.
   </footer>
 
@@ -324,7 +330,9 @@
     lastRun: document.getElementById('lastRun'),
     statUniverse: document.getElementById('statUniverse'),
     statCriteria: document.getElementById('statCriteria'),
+    statVcp: document.getElementById('statVcp'),
     statFinal: document.getElementById('statFinal'),
+    liquiditySub: document.getElementById('liquiditySub'),
     refreshBtn: document.getElementById('refreshBtn'),
   };
 
@@ -336,6 +344,20 @@
   function fmtPrice(x){
     if (x === null || x === undefined || Number.isNaN(x)) return '—';
     return '$' + x.toFixed(2);
+  }
+
+  function fmtCap(x){
+    if (x === null || x === undefined || Number.isNaN(x)) return '—';
+    if (x >= 1e9) return '$' + (x/1e9).toFixed(1) + 'B';
+    if (x >= 1e6) return '$' + (x/1e6).toFixed(0) + 'M';
+    return '$' + x.toLocaleString();
+  }
+
+  function fmtVolume(x){
+    if (x === null || x === undefined || Number.isNaN(x)) return '—';
+    if (x >= 1e6) return (x/1e6).toFixed(1) + 'M';
+    if (x >= 1e3) return (x/1e3).toFixed(0) + 'K';
+    return Math.round(x).toLocaleString();
   }
 
   function fmtDate(iso){
@@ -392,6 +414,10 @@
           <div class="stat">52W range<b>${rangePos !== null ? (rangePos*100).toFixed(0) + '%' : '—'}</b></div>
           <div class="stat">3M return<b>${fmtPct(stock.ret_3m)}</b></div>
           <div class="stat rs">vs SPX<b>${fmtPct(rsDelta)}</b></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat">Mkt cap<b>${fmtCap(stock.market_cap)}</b></div>
+          <div class="stat">Avg vol (3M)<b>${fmtVolume(stock.avg_volume_3m)}</b></div>
         </div>
         <div class="chart-container" id="chart-${stock.ticker}"></div>
       `;
@@ -453,7 +479,14 @@
       el.lastRun.textContent = 'Last run: ' + fmtDate(data.generated_at_utc);
       el.statUniverse.textContent = data.universe_size ?? '—';
       el.statCriteria.textContent = data.criteria_1_4_pass_count ?? '—';
+      el.statVcp.textContent = data.vcp_pass_count ?? '—';
       el.statFinal.textContent = data.final_pass_count ?? '—';
+
+      if (data.min_market_cap && data.min_avg_volume_3m){
+        const capB = (data.min_market_cap / 1e9).toFixed(0);
+        const volK = (data.min_avg_volume_3m / 1000).toFixed(0);
+        el.liquiditySub.textContent = `cap ≥ $${capB}B · vol ≥ ${volK}k/day`;
+      }
 
       if (!data.stocks || data.stocks.length === 0){
         renderEmpty();

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
+import time
 
 # ---------------------------------------------------------------------------
 # Config
@@ -45,6 +46,8 @@ ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low (widened from 1.30 on 2
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high (widened from 0.70)
 
 SPX_TICKER = "^GSPC"
+SPX_FETCH_RETRIES = 4
+SPX_FETCH_BACKOFF_SEC = (10, 30, 60, 120)  # increasing pause before each retry
 
 
 # ---------------------------------------------------------------------------
@@ -83,18 +86,39 @@ def fetch_spx_return_3m() -> float:
     Downloads SPX (^GSPC) daily closes over the same lookback horizon and
     returns its most recent 3-month (63 trading day) return as a scalar,
     used as the relative-strength benchmark for every ticker.
+
+    Retries with increasing backoff on failure - Yahoo's rate limiter hits
+    shared-IP environments like GitHub Actions runners harder than a home
+    connection, so a single extra call at the end of a long run can get
+    rate-limited even when the bulk ticker download just succeeded.
     """
-    spx = yf.download(SPX_TICKER, period="1y", interval="1d", progress=False, auto_adjust=True)
-    if spx.empty or len(spx) < RS_LOOKBACK_DAYS + 1:
-        raise RuntimeError("Could not fetch enough SPX history to compute 3-month return.")
+    last_error: Exception | None = None
 
-    close = spx["Close"]
-    if isinstance(close, pd.DataFrame):  # yfinance sometimes returns a 1-col DataFrame
-        close = close.iloc[:, 0]
+    for attempt in range(SPX_FETCH_RETRIES):
+        try:
+            spx = yf.download(SPX_TICKER, period="1y", interval="1d", progress=False, auto_adjust=True)
+            if spx.empty or len(spx) < RS_LOOKBACK_DAYS + 1:
+                raise RuntimeError("Fetched SPX data but it was empty or too short.")
 
-    latest_close = close.iloc[-1]
-    prior_close = close.iloc[-1 - RS_LOOKBACK_DAYS]
-    return float(latest_close / prior_close - 1)
+            close = spx["Close"]
+            if isinstance(close, pd.DataFrame):  # yfinance sometimes returns a 1-col DataFrame
+                close = close.iloc[:, 0]
+
+            latest_close = close.iloc[-1]
+            prior_close = close.iloc[-1 - RS_LOOKBACK_DAYS]
+            return float(latest_close / prior_close - 1)
+
+        except Exception as exc:  # noqa: BLE001 - retry on anything, surface the last error if all fail
+            last_error = exc
+            if attempt < SPX_FETCH_RETRIES - 1:
+                wait = SPX_FETCH_BACKOFF_SEC[attempt]
+                print(f"[criteria] SPX fetch attempt {attempt + 1} failed ({exc}); retrying in {wait}s ...")
+                time.sleep(wait)
+
+    raise RuntimeError(
+        f"Could not fetch enough SPX history to compute 3-month return "
+        f"after {SPX_FETCH_RETRIES} attempts. Last error: {last_error}"
+    )
 
 
 # ---------------------------------------------------------------------------
