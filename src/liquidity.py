@@ -24,8 +24,8 @@ import yfinance as yf
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-MIN_MARKET_CAP = 2_000_000_000   # $2B
-MIN_AVG_VOLUME = 100_000         # shares/day, 3-month average
+MIN_MARKET_CAP = 1_000_000_000   # $1B
+MIN_AVG_VOLUME = 50_000         # shares/day, 3-month average
 AVG_VOLUME_LOOKBACK_DAYS = 63    # ~3 trading months, matches RS_LOOKBACK_DAYS in criteria.py
 
 MARKET_CAP_PAUSE_SEC = 0.3       # small pause between per-ticker market cap calls
