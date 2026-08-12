@@ -2,8 +2,10 @@
 vcp.py
 
 Implements criterion 5 (Volatility Contraction Pattern): weekly price range
-OR weekly volume monotonically decreasing over the last 4 weeks (loosened
-2026-08-10 from requiring both simultaneously to requiring either one).
+OR weekly volume monotonically decreasing over the last N_WEEKS weeks
+(loosened 2026-08-10 from requiring both simultaneously to requiring
+either one; window extended from 4 to 6 weeks the same day for a deeper,
+more reliable base pattern).
 
 Designed to run ONLY on the survivors of criteria 1-4 (from criteria.py),
 not the full universe - this is the most computationally expensive check,
@@ -31,7 +33,8 @@ CRITERIA_CSV = REPO_ROOT / "output" / "criteria_pass.csv"
 OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "vcp_pass.csv"
 
-N_WEEKS = 4                 # contraction window
+N_WEEKS = 6                 # contraction window (extended from 4 on 2026-08-10
+                             # for a deeper, more reliable base pattern)
 MIN_DAYS_FOR_FULL_WEEK = 3  # weeks with fewer trading days than this are
                              # treated as partial (e.g. the current, still-
                              # in-progress week) and dropped

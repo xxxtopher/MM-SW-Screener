@@ -8,10 +8,12 @@ Criteria:
   1. Close > 50-day SMA, Close > 150-day SMA, Close > 200-day SMA
   2. 150-day SMA and 200-day SMA today > their value 40 trading days ago
      (i.e. the long-term trend is rising)
-  3. Close >= 1.30 x 52-week low, AND Close >= 0.70 x 52-week high
-     (at least 30% above the low, no more than 30% below the high)
+  3. Close >= 1.20 x 52-week low, AND Close >= 0.60 x 52-week high
+     (at least 20% above the low, no more than 40% below the high)
   4. 3-month return (63 trading days) beats SPX's 3-month return over the
      same window
+  5. Close <= 1.28 x 50-day SMA (not more than ~28% extended above the
+     50-day SMA - Minervini's anti-chasing guardrail, added 2026-08-10)
 
 Can be run standalone (writes output/criteria_pass.csv) or imported:
     from criteria import compute_criteria
@@ -44,6 +46,11 @@ RS_LOOKBACK_DAYS = 63         # ~3 trading months, for relative strength vs SPX
 
 ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low (widened from 1.30 on 2026-08-10)
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high (widened from 0.70)
+
+# Anti-chasing guardrail (added 2026-08-10): Minervini's rule of thumb is to
+# avoid buying a stock more than ~25-30% above its 50-day SMA, since that
+# signals an extended, higher-risk entry even if the trend itself is intact.
+MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.28 x sma50 (i.e. no more than 28% above it)
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
@@ -158,26 +165,30 @@ def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.Da
     latest["spx_ret_3m"] = spx_ret_3m
     latest["crit4_relative_strength"] = latest["ret_3m"] > spx_ret_3m
 
+    latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
+    latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
+
     latest["pass_all"] = (
         latest["crit1_above_smas"]
         & latest["crit2_sma_rising"]
         & latest["crit3_52w_range"]
         & latest["crit4_relative_strength"]
+        & latest["crit_not_extended"]
     )
 
     # NaNs (insufficient history) propagate as False in the boolean columns
     # above via pandas' comparison semantics, so short-history tickers are
     # naturally excluded rather than causing errors.
     for col in ["crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-                "crit4_relative_strength", "pass_all"]:
+                "crit4_relative_strength", "crit_not_extended", "pass_all"]:
         latest[col] = latest[col].fillna(False)
 
     keep_cols = [
         "ticker", "date", "close",
         "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_3m", "spx_ret_3m",
+        "low_52w", "high_52w", "ret_3m", "spx_ret_3m", "extension_pct",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-        "crit4_relative_strength", "pass_all",
+        "crit4_relative_strength", "crit_not_extended", "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
 
