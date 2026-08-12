@@ -38,7 +38,7 @@ LATEST_PRICES_PATH = REPO_ROOT / "data" / "daily_prices" / "latest.parquet"
 OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "criteria_pass.csv"
 
-SMA_WINDOWS = (50, 150, 200)
+SMA_WINDOWS = (20, 50, 150, 200)
 TREND_LOOKBACK_DAYS = 30      # "rising" = today's SMA > SMA from 40 trading days ago
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
@@ -51,6 +51,11 @@ BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of th
 # avoid buying a stock more than ~25-30% above its 50-day SMA, since that
 # signals an extended, higher-risk entry even if the trend itself is intact.
 MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.28 x sma50 (i.e. no more than 28% above it)
+
+# Tightness filter (added 2026-08-10): require price to be consolidating
+# close to its 20-day SMA, not running away from it - a proxy for "coiled,
+# ready to move" rather than "already extended in the short term."
+MAX_DIST_FROM_SMA20 = 0.05    # |close - sma20| / sma20 <= 5%
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
@@ -168,27 +173,31 @@ def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.Da
     latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
     latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
 
+    latest["dist_from_sma20_pct"] = (latest["close"] - latest["sma20"]).abs() / latest["sma20"]
+    latest["crit_near_sma20"] = latest["dist_from_sma20_pct"] <= MAX_DIST_FROM_SMA20
+
     latest["pass_all"] = (
         latest["crit1_above_smas"]
         & latest["crit2_sma_rising"]
         & latest["crit3_52w_range"]
         & latest["crit4_relative_strength"]
         & latest["crit_not_extended"]
+        & latest["crit_near_sma20"]
     )
 
     # NaNs (insufficient history) propagate as False in the boolean columns
     # above via pandas' comparison semantics, so short-history tickers are
     # naturally excluded rather than causing errors.
     for col in ["crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-                "crit4_relative_strength", "crit_not_extended", "pass_all"]:
+                "crit4_relative_strength", "crit_not_extended", "crit_near_sma20", "pass_all"]:
         latest[col] = latest[col].fillna(False)
 
     keep_cols = [
         "ticker", "date", "close",
-        "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_3m", "spx_ret_3m", "extension_pct",
+        "sma20", "sma50", "sma150", "sma200",
+        "low_52w", "high_52w", "ret_3m", "spx_ret_3m", "extension_pct", "dist_from_sma20_pct",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-        "crit4_relative_strength", "crit_not_extended", "pass_all",
+        "crit4_relative_strength", "crit_not_extended", "crit_near_sma20", "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
 
