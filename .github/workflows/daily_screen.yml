@@ -34,6 +34,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output/ data/daily_prices/latest.parquet
+          git add output/
           git diff --cached --quiet || git commit -m "chore: daily screen run [automated]"
           git push
