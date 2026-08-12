@@ -29,6 +29,8 @@ MIN_AVG_VOLUME = 100_000         # shares/day, 3-month average
 AVG_VOLUME_LOOKBACK_DAYS = 63    # ~3 trading months, matches RS_LOOKBACK_DAYS in criteria.py
 
 MARKET_CAP_PAUSE_SEC = 0.3       # small pause between per-ticker market cap calls
+MARKET_CAP_RETRIES = 3
+MARKET_CAP_BACKOFF_SEC = (5, 15, 40)  # increasing pause before each retry, per ticker
 
 
 # ---------------------------------------------------------------------------
@@ -48,21 +50,43 @@ def compute_avg_volume_3m(daily_df: pd.DataFrame, tickers: list[str]) -> dict[st
 # Market cap (one yfinance call per ticker - keep the input list small)
 # ---------------------------------------------------------------------------
 
+def _fetch_one_market_cap(ticker: str) -> float | None:
+    """
+    Fetches a single ticker's market cap via yfinance's lightweight
+    `fast_info`, retrying with backoff on failure (e.g. transient rate
+    limiting - common on shared-IP environments like GitHub Actions
+    runners). Returns None if every attempt fails, rather than raising.
+    """
+    last_error: Exception | None = None
+    for attempt in range(MARKET_CAP_RETRIES):
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            cap = fi.get("market_cap") or fi.get("marketCap")
+            return float(cap) if cap else None
+        except Exception as exc:  # noqa: BLE001 - retry, then give up gracefully
+            last_error = exc
+            if attempt < MARKET_CAP_RETRIES - 1:
+                wait = MARKET_CAP_BACKOFF_SEC[attempt]
+                print(
+                    f"[liquidity] Market cap fetch for {ticker} failed "
+                    f"(attempt {attempt + 1}: {exc}); retrying in {wait}s ...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+
+    print(f"[liquidity] Giving up on {ticker} after {MARKET_CAP_RETRIES} attempts: {last_error}", file=sys.stderr)
+    return None
+
+
 def fetch_market_caps(tickers: list[str]) -> dict[str, float | None]:
     """
-    Fetches market cap per ticker via yfinance's lightweight `fast_info`
-    (much cheaper than the full `.info` call). Returns None for any ticker
-    where market cap couldn't be determined, rather than raising.
+    Fetches market cap for each ticker (with per-ticker retry on failure).
+    Returns None for any ticker where market cap couldn't be determined
+    after all retries, rather than raising.
     """
     caps: dict[str, float | None] = {}
     for t in tickers:
-        try:
-            fi = yf.Ticker(t).fast_info
-            cap = fi.get("market_cap") or fi.get("marketCap")
-            caps[t] = float(cap) if cap else None
-        except Exception as exc:  # noqa: BLE001 - one bad ticker shouldn't kill the run
-            print(f"[liquidity] Could not fetch market cap for {t}: {exc}", file=sys.stderr)
-            caps[t] = None
+        caps[t] = _fetch_one_market_cap(t)
         time.sleep(MARKET_CAP_PAUSE_SEC)
     return caps
 
