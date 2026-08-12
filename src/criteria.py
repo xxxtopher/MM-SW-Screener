@@ -39,7 +39,7 @@ OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "criteria_pass.csv"
 
 SMA_WINDOWS = (50, 150, 200)
-TREND_LOOKBACK_DAYS = 40      # "rising" = today's SMA > SMA from 40 trading days ago
+TREND_LOOKBACK_DAYS = 30      # "rising" = today's SMA > SMA from 40 trading days ago
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
 RS_LOOKBACK_DAYS = 63         # ~3 trading months, for relative strength vs SPX
