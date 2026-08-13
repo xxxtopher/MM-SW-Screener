@@ -33,8 +33,7 @@ CRITERIA_CSV = REPO_ROOT / "output" / "criteria_pass.csv"
 OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "vcp_pass.csv"
 
-N_WEEKS = 3                 # contraction window (extended from 4 on 2026-08-10
-                             # for a deeper, more reliable base pattern)
+N_WEEKS = 3                 # contraction window (shortened from 6 to 3 on 2026-08-10)
 MIN_DAYS_FOR_FULL_WEEK = 3  # weeks with fewer trading days than this are
                              # treated as partial (e.g. the current, still-
                              # in-progress week) and dropped

@@ -299,7 +299,7 @@
     <div class="funnel-stage">
       <div class="funnel-label">VCP Setups</div>
       <div class="funnel-value" id="statVcp">—</div>
-      <div class="funnel-sub">4-week range or volume contraction</div>
+      <div class="funnel-sub">3-week range or volume contraction</div>
     </div>
     <div class="funnel-stage final">
       <div class="funnel-label">Liquid Setups</div>
@@ -314,7 +314,7 @@
 
   <footer>
     Criteria: close above rising 50/150/200-day SMA · at least 20% above the 52-week low and within 40% of the 52-week high ·
-    3-month return beating the S&amp;P 500 · 4-week weekly range or volume contracting ·
+    1-month return beating the S&amp;P 500 · 3-week weekly range or volume contracting ·
     market cap and 3-month average volume above the liquidity thresholds shown above.
     Results refresh automatically after each US market close. This is not investment advice.
   </footer>
@@ -400,8 +400,8 @@
       const card = document.createElement('div');
       card.className = 'card';
 
-      const rsDelta = (stock.ret_3m !== null && stock.spx_ret_3m !== null)
-        ? stock.ret_3m - stock.spx_ret_3m : null;
+      const rsDelta = (stock.ret_1m !== null && stock.spx_ret_1m !== null)
+        ? stock.ret_1m - stock.spx_ret_1m : null;
 
       const rangePos = pctFromHighLow(stock.close, stock.low_52w, stock.high_52w);
 
@@ -412,7 +412,7 @@
         </div>
         <div class="stat-row">
           <div class="stat">52W range<b>${rangePos !== null ? (rangePos*100).toFixed(0) + '%' : '—'}</b></div>
-          <div class="stat">3M return<b>${fmtPct(stock.ret_3m)}</b></div>
+          <div class="stat">1M return<b>${fmtPct(stock.ret_1m)}</b></div>
           <div class="stat rs">vs SPX<b>${fmtPct(rsDelta)}</b></div>
         </div>
         <div class="stat-row">

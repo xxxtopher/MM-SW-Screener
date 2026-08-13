@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from criteria import compute_criteria, fetch_spx_return_3m
+from criteria import compute_criteria, fetch_spx_return_1m
 from vcp import compute_vcp
 from liquidity import compute_liquidity, MIN_MARKET_CAP, MIN_AVG_VOLUME
 
@@ -93,12 +93,12 @@ def main() -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("[screen] Fetching SPX 3-month return benchmark ...")
-    spx_ret_3m = fetch_spx_return_3m()
-    print(f"[screen] SPX 3-month return: {spx_ret_3m:.2%}")
+    print("[screen] Fetching SPX 1-month return benchmark ...")
+    spx_ret_1m = fetch_spx_return_1m()
+    print(f"[screen] SPX 1-month return: {spx_ret_1m:.2%}")
 
     print("[screen] Running criteria 1-4 across the full universe ...")
-    criteria_result = compute_criteria(daily, spx_ret_3m=spx_ret_3m)
+    criteria_result = compute_criteria(daily, spx_ret_1m=spx_ret_1m)
     criteria_result.to_csv(CRITERIA_CSV, index=False)
 
     survivors = criteria_result[criteria_result["pass_all"]]["ticker"].tolist()
@@ -139,7 +139,7 @@ def main() -> None:
     # alongside each chart without needing to re-derive them client-side.
     summary_cols = [
         "ticker", "close", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_3m", "spx_ret_3m",
+        "low_52w", "high_52w", "ret_1m", "spx_ret_1m",
     ]
     summary_lookup = (
         criteria_result[criteria_result["ticker"].isin(final_tickers)][summary_cols]
@@ -167,8 +167,8 @@ def main() -> None:
             "sma200": stats.get("sma200"),
             "low_52w": stats.get("low_52w"),
             "high_52w": stats.get("high_52w"),
-            "ret_3m": stats.get("ret_3m"),
-            "spx_ret_3m": stats.get("spx_ret_3m"),
+            "ret_1m": stats.get("ret_1m"),
+            "spx_ret_1m": stats.get("spx_ret_1m"),
             "market_cap": liq.get("market_cap"),
             "avg_volume_3m": liq.get("avg_volume_3m"),
             "chart": chart_data.get(ticker, []),
@@ -182,7 +182,7 @@ def main() -> None:
         "final_pass_count": len(final_tickers),
         "min_market_cap": MIN_MARKET_CAP,
         "min_avg_volume_3m": MIN_AVG_VOLUME,
-        "spx_ret_3m": spx_ret_3m,
+        "spx_ret_1m": spx_ret_1m,
         "stocks": stocks_out,
     }
 

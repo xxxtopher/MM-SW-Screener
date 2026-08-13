@@ -10,10 +10,12 @@ Criteria:
      (i.e. the long-term trend is rising)
   3. Close >= 1.20 x 52-week low, AND Close >= 0.60 x 52-week high
      (at least 20% above the low, no more than 40% below the high)
-  4. 3-month return (63 trading days) beats SPX's 3-month return over the
+  4. 1-month return (~21 trading days) beats SPX's 1-month return over the
      same window
   5. Close <= 1.28 x 50-day SMA (not more than ~28% extended above the
      50-day SMA - Minervini's anti-chasing guardrail, added 2026-08-10)
+  6. |Close - 20-day SMA| / 20-day SMA <= 5% (price consolidating tightly
+     around its 20-day SMA, added 2026-08-10)
 
 Can be run standalone (writes output/criteria_pass.csv) or imported:
     from criteria import compute_criteria
@@ -43,7 +45,7 @@ TREND_LOOKBACK_DAYS_150 = 30   # "rising" = today's 150-day SMA > its value 30 t
 TREND_LOOKBACK_DAYS_200 = 150  # "rising" = today's 200-day SMA > its value 150 trading days ago (revised 2026-08-10)
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
-RS_LOOKBACK_DAYS = 63         # ~3 trading months, for relative strength vs SPX
+RS_LOOKBACK_DAYS = 21         # ~1 trading month, for relative strength vs SPX (changed from 63/3-month on 2026-08-10)
 
 ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low (widened from 1.30 on 2026-08-10)
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high (widened from 0.70)
@@ -56,7 +58,7 @@ MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.28 x sma50 (i.e. no more than 28%
 # Tightness filter (added 2026-08-10): require price to be consolidating
 # close to its 20-day SMA, not running away from it - a proxy for "coiled,
 # ready to move" rather than "already extended in the short term."
-MAX_DIST_FROM_SMA20 = 0.025    # |close - sma20| / sma20 <= 2.5%
+MAX_DIST_FROM_SMA20 = 0.025   # |close - sma20| / sma20 <= 2.5% (tightened from 5% on 2026-08-10)
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
@@ -70,7 +72,7 @@ SPX_FETCH_BACKOFF_SEC = (10, 30, 60, 120)  # increasing pause before each retry
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Given long-format daily OHLCV (columns: ticker, date, open, high, low,
-    close, volume), adds SMA, trend, 52-week range, and 3-month return
+    close, volume), adds SMA, trend, 52-week range, and 1-month return
     columns, all computed per-ticker via groupby.
     """
     df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
@@ -89,15 +91,15 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         lambda s: s.rolling(RANGE_WINDOW_DAYS, min_periods=RANGE_MIN_PERIODS).max()
     )
 
-    df["ret_3m"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS) - 1)
+    df["ret_1m"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS) - 1)
 
     return df
 
 
-def fetch_spx_return_3m() -> float:
+def fetch_spx_return_1m() -> float:
     """
     Downloads SPX (^GSPC) daily closes over the same lookback horizon and
-    returns its most recent 3-month (63 trading day) return as a scalar,
+    returns its most recent 1-month (~21 trading day) return as a scalar,
     used as the relative-strength benchmark for every ticker.
 
     Retries with increasing backoff on failure - Yahoo's rate limiter hits
@@ -129,7 +131,7 @@ def fetch_spx_return_3m() -> float:
                 time.sleep(wait)
 
     raise RuntimeError(
-        f"Could not fetch enough SPX history to compute 3-month return "
+        f"Could not fetch enough SPX history to compute 1-month return "
         f"after {SPX_FETCH_RETRIES} attempts. Last error: {last_error}"
     )
 
@@ -138,7 +140,7 @@ def fetch_spx_return_3m() -> float:
 # Criteria evaluation
 # ---------------------------------------------------------------------------
 
-def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.DataFrame:
+def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.DataFrame:
     """
     Full pipeline: adds indicators, takes the latest row per ticker, flags
     each criterion, and returns one row per ticker with boolean columns
@@ -149,8 +151,8 @@ def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.Da
     # Evaluate only the most recent trading date available per ticker.
     latest = df.groupby("ticker", as_index=False).tail(1).copy()
 
-    if spx_ret_3m is None:
-        spx_ret_3m = fetch_spx_return_3m()
+    if spx_ret_1m is None:
+        spx_ret_1m = fetch_spx_return_1m()
 
     latest["crit1_above_smas"] = (
         (latest["close"] > latest["sma50"])
@@ -168,8 +170,8 @@ def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.Da
         & (latest["close"] >= BELOW_HIGH_MULT * latest["high_52w"])
     )
 
-    latest["spx_ret_3m"] = spx_ret_3m
-    latest["crit4_relative_strength"] = latest["ret_3m"] > spx_ret_3m
+    latest["spx_ret_1m"] = spx_ret_1m
+    latest["crit4_relative_strength"] = latest["ret_1m"] > spx_ret_1m
 
     latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
     latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
@@ -196,7 +198,7 @@ def compute_criteria(df: pd.DataFrame, spx_ret_3m: float | None = None) -> pd.Da
     keep_cols = [
         "ticker", "date", "close",
         "sma20", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_3m", "spx_ret_3m", "extension_pct", "dist_from_sma20_pct",
+        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "extension_pct", "dist_from_sma20_pct",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit_not_extended", "crit_near_sma20", "pass_all",
     ]
@@ -217,12 +219,12 @@ def main() -> None:
     prices = pd.read_parquet(LATEST_PRICES_PATH)
     print(f"[criteria] Loaded {len(prices):,} rows across {prices['ticker'].nunique()} tickers")
 
-    print("[criteria] Fetching SPX 3-month return benchmark ...")
-    spx_ret_3m = fetch_spx_return_3m()
-    print(f"[criteria] SPX 3-month return: {spx_ret_3m:.2%}")
+    print("[criteria] Fetching SPX 1-month return benchmark ...")
+    spx_ret_1m = fetch_spx_return_1m()
+    print(f"[criteria] SPX 1-month return: {spx_ret_1m:.2%}")
 
     print("[criteria] Computing indicators and evaluating criteria 1-4 ...")
-    result = compute_criteria(prices, spx_ret_3m=spx_ret_3m)
+    result = compute_criteria(prices, spx_ret_1m=spx_ret_1m)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     result.to_csv(OUTPUT_CSV, index=False)

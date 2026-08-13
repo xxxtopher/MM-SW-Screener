@@ -32,7 +32,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 UNIVERSE_CSV = REPO_ROOT / "data" / "universe.csv"
 PRICES_DIR = REPO_ROOT / "data" / "daily_prices"
 
-PERIOD = "2y"          # ~250 trading days - covers 200-day SMA + buffer
+PERIOD = "2y"          # ~500 trading days - extended from 1y on 2026-08-10 to
+                        # support the 200-day SMA compared to its value 150
+                        # trading days ago (needs 200+150=350 days minimum)
 INTERVAL = "1d"
 BATCH_SIZE = 150        # tickers per yf.download() call
 BATCH_PAUSE_SEC = 2.0   # pause between batches to avoid rate limiting
