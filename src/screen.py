@@ -93,15 +93,15 @@ def main() -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("[screen] Fetching SPX 1-month and 1-week return benchmarks ...")
+    print("[screen] Fetching SPX 1-month and 2-week return benchmarks ...")
     spx_returns = fetch_spx_returns()
     spx_ret_1m = spx_returns["ret_1m"]
-    spx_ret_1w = spx_returns["ret_1w"]
+    spx_ret_2w = spx_returns["ret_2w"]
     print(f"[screen] SPX 1-month return: {spx_ret_1m:.2%}")
-    print(f"[screen] SPX 1-week return: {spx_ret_1w:.2%}")
+    print(f"[screen] SPX 2-week return: {spx_ret_2w:.2%}")
 
     print("[screen] Running criteria 1-4 across the full universe ...")
-    criteria_result = compute_criteria(daily, spx_ret_1m=spx_ret_1m, spx_ret_1w=spx_ret_1w)
+    criteria_result = compute_criteria(daily, spx_ret_1m=spx_ret_1m, spx_ret_2w=spx_ret_2w)
     criteria_result.to_csv(CRITERIA_CSV, index=False)
 
     survivors = criteria_result[criteria_result["pass_all"]]["ticker"].tolist()
@@ -142,7 +142,7 @@ def main() -> None:
     # alongside each chart without needing to re-derive them client-side.
     summary_cols = [
         "ticker", "close", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "ret_1w", "spx_ret_1w",
+        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "ret_2w", "spx_ret_2w",
     ]
     summary_lookup = (
         criteria_result[criteria_result["ticker"].isin(final_tickers)][summary_cols]
@@ -172,8 +172,8 @@ def main() -> None:
             "high_52w": stats.get("high_52w"),
             "ret_1m": stats.get("ret_1m"),
             "spx_ret_1m": stats.get("spx_ret_1m"),
-            "ret_1w": stats.get("ret_1w"),
-            "spx_ret_1w": stats.get("spx_ret_1w"),
+            "ret_2w": stats.get("ret_2w"),
+            "spx_ret_2w": stats.get("spx_ret_2w"),
             "market_cap": liq.get("market_cap"),
             "avg_volume_3m": liq.get("avg_volume_3m"),
             "chart": chart_data.get(ticker, []),
@@ -188,7 +188,7 @@ def main() -> None:
         "min_market_cap": MIN_MARKET_CAP,
         "min_avg_volume_3m": MIN_AVG_VOLUME,
         "spx_ret_1m": spx_ret_1m,
-        "spx_ret_1w": spx_ret_1w,
+        "spx_ret_2w": spx_ret_2w,
         "stocks": stocks_out,
     }
 
