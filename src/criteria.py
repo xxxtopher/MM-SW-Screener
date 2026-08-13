@@ -46,6 +46,7 @@ TREND_LOOKBACK_DAYS_200 = 150  # "rising" = today's 200-day SMA > its value 150 
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
 RS_LOOKBACK_DAYS = 21         # ~1 trading month, for relative strength vs SPX (changed from 63/3-month on 2026-08-10)
+RS_LOOKBACK_DAYS_1W = 5        # ~1 trading week, for the added short-term outperformance check (added 2026-08-10)
 
 ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low (widened from 1.30 on 2026-08-10)
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high (widened from 0.70)
@@ -92,15 +93,18 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["ret_1m"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS) - 1)
+    df["ret_1w"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS_1W) - 1)
 
     return df
 
 
-def fetch_spx_return_1m() -> float:
+def fetch_spx_returns() -> dict[str, float]:
     """
-    Downloads SPX (^GSPC) daily closes over the same lookback horizon and
-    returns its most recent 1-month (~21 trading day) return as a scalar,
-    used as the relative-strength benchmark for every ticker.
+    Downloads SPX (^GSPC) daily closes once and returns both its most
+    recent 1-month (~21 trading day) and 1-week (~5 trading day) returns,
+    used as relative-strength benchmarks. Computing both from a single
+    download avoids a second network call (and its own rate-limit risk)
+    for what would otherwise be a near-identical request.
 
     Retries with increasing backoff on failure - Yahoo's rate limiter hits
     shared-IP environments like GitHub Actions runners harder than a home
@@ -108,11 +112,12 @@ def fetch_spx_return_1m() -> float:
     rate-limited even when the bulk ticker download just succeeded.
     """
     last_error: Exception | None = None
+    min_len = max(RS_LOOKBACK_DAYS, RS_LOOKBACK_DAYS_1W) + 1
 
     for attempt in range(SPX_FETCH_RETRIES):
         try:
             spx = yf.download(SPX_TICKER, period="1y", interval="1d", progress=False, auto_adjust=True)
-            if spx.empty or len(spx) < RS_LOOKBACK_DAYS + 1:
+            if spx.empty or len(spx) < min_len:
                 raise RuntimeError("Fetched SPX data but it was empty or too short.")
 
             close = spx["Close"]
@@ -120,8 +125,9 @@ def fetch_spx_return_1m() -> float:
                 close = close.iloc[:, 0]
 
             latest_close = close.iloc[-1]
-            prior_close = close.iloc[-1 - RS_LOOKBACK_DAYS]
-            return float(latest_close / prior_close - 1)
+            ret_1m = float(latest_close / close.iloc[-1 - RS_LOOKBACK_DAYS] - 1)
+            ret_1w = float(latest_close / close.iloc[-1 - RS_LOOKBACK_DAYS_1W] - 1)
+            return {"ret_1m": ret_1m, "ret_1w": ret_1w}
 
         except Exception as exc:  # noqa: BLE001 - retry on anything, surface the last error if all fail
             last_error = exc
@@ -131,7 +137,7 @@ def fetch_spx_return_1m() -> float:
                 time.sleep(wait)
 
     raise RuntimeError(
-        f"Could not fetch enough SPX history to compute 1-month return "
+        f"Could not fetch enough SPX history to compute returns "
         f"after {SPX_FETCH_RETRIES} attempts. Last error: {last_error}"
     )
 
@@ -140,7 +146,11 @@ def fetch_spx_return_1m() -> float:
 # Criteria evaluation
 # ---------------------------------------------------------------------------
 
-def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.DataFrame:
+def compute_criteria(
+    df: pd.DataFrame,
+    spx_ret_1m: float | None = None,
+    spx_ret_1w: float | None = None,
+) -> pd.DataFrame:
     """
     Full pipeline: adds indicators, takes the latest row per ticker, flags
     each criterion, and returns one row per ticker with boolean columns
@@ -151,8 +161,10 @@ def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.Da
     # Evaluate only the most recent trading date available per ticker.
     latest = df.groupby("ticker", as_index=False).tail(1).copy()
 
-    if spx_ret_1m is None:
-        spx_ret_1m = fetch_spx_return_1m()
+    if spx_ret_1m is None or spx_ret_1w is None:
+        spx_returns = fetch_spx_returns()
+        spx_ret_1m = spx_returns["ret_1m"] if spx_ret_1m is None else spx_ret_1m
+        spx_ret_1w = spx_returns["ret_1w"] if spx_ret_1w is None else spx_ret_1w
 
     latest["crit1_above_smas"] = (
         (latest["close"] > latest["sma50"])
@@ -173,6 +185,9 @@ def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.Da
     latest["spx_ret_1m"] = spx_ret_1m
     latest["crit4_relative_strength"] = latest["ret_1m"] > spx_ret_1m
 
+    latest["spx_ret_1w"] = spx_ret_1w
+    latest["crit4b_outperform_1w"] = latest["ret_1w"] > spx_ret_1w
+
     latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
     latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
 
@@ -184,6 +199,7 @@ def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.Da
         & latest["crit2_sma_rising"]
         & latest["crit3_52w_range"]
         & latest["crit4_relative_strength"]
+        & latest["crit4b_outperform_1w"]
         & latest["crit_not_extended"]
         & latest["crit_near_sma20"]
     )
@@ -192,15 +208,18 @@ def compute_criteria(df: pd.DataFrame, spx_ret_1m: float | None = None) -> pd.Da
     # above via pandas' comparison semantics, so short-history tickers are
     # naturally excluded rather than causing errors.
     for col in ["crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-                "crit4_relative_strength", "crit_not_extended", "crit_near_sma20", "pass_all"]:
+                "crit4_relative_strength", "crit4b_outperform_1w",
+                "crit_not_extended", "crit_near_sma20", "pass_all"]:
         latest[col] = latest[col].fillna(False)
 
     keep_cols = [
         "ticker", "date", "close",
         "sma20", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "extension_pct", "dist_from_sma20_pct",
+        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "ret_1w", "spx_ret_1w",
+        "extension_pct", "dist_from_sma20_pct",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
-        "crit4_relative_strength", "crit_not_extended", "crit_near_sma20", "pass_all",
+        "crit4_relative_strength", "crit4b_outperform_1w",
+        "crit_not_extended", "crit_near_sma20", "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
 
@@ -219,12 +238,13 @@ def main() -> None:
     prices = pd.read_parquet(LATEST_PRICES_PATH)
     print(f"[criteria] Loaded {len(prices):,} rows across {prices['ticker'].nunique()} tickers")
 
-    print("[criteria] Fetching SPX 1-month return benchmark ...")
-    spx_ret_1m = fetch_spx_return_1m()
-    print(f"[criteria] SPX 1-month return: {spx_ret_1m:.2%}")
+    print("[criteria] Fetching SPX 1-month and 1-week return benchmarks ...")
+    spx_returns = fetch_spx_returns()
+    print(f"[criteria] SPX 1-month return: {spx_returns['ret_1m']:.2%}")
+    print(f"[criteria] SPX 1-week return: {spx_returns['ret_1w']:.2%}")
 
     print("[criteria] Computing indicators and evaluating criteria 1-4 ...")
-    result = compute_criteria(prices, spx_ret_1m=spx_ret_1m)
+    result = compute_criteria(prices, spx_ret_1m=spx_returns["ret_1m"], spx_ret_1w=spx_returns["ret_1w"])
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     result.to_csv(OUTPUT_CSV, index=False)
