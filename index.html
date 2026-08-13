@@ -314,7 +314,7 @@
 
   <footer>
     Criteria: close above rising 50/150/200-day SMA · at least 20% above the 52-week low and within 40% of the 52-week high ·
-    1-month AND 1-week return beating the S&amp;P 500 · 2-week weekly range or volume contracting ·
+    1-month AND 2-week return beating the S&amp;P 500 · 2-week weekly range or volume contracting ·
     market cap and 3-month average volume above the liquidity thresholds shown above.
     Results refresh automatically after each US market close. This is not investment advice.
   </footer>
@@ -402,8 +402,8 @@
 
       const rsDelta = (stock.ret_1m !== null && stock.spx_ret_1m !== null)
         ? stock.ret_1m - stock.spx_ret_1m : null;
-      const rsDelta1w = (stock.ret_1w !== null && stock.spx_ret_1w !== null)
-        ? stock.ret_1w - stock.spx_ret_1w : null;
+      const rsDelta2w = (stock.ret_2w !== null && stock.spx_ret_2w !== null)
+        ? stock.ret_2w - stock.spx_ret_2w : null;
 
       const rangePos = pctFromHighLow(stock.close, stock.low_52w, stock.high_52w);
 
@@ -418,8 +418,8 @@
           <div class="stat rs">vs SPX (1M)<b>${fmtPct(rsDelta)}</b></div>
         </div>
         <div class="stat-row">
-          <div class="stat">1W return<b>${fmtPct(stock.ret_1w)}</b></div>
-          <div class="stat rs">vs SPX (1W)<b>${fmtPct(rsDelta1w)}</b></div>
+          <div class="stat">2W return<b>${fmtPct(stock.ret_2w)}</b></div>
+          <div class="stat rs">vs SPX (2W)<b>${fmtPct(rsDelta2w)}</b></div>
         </div>
         <div class="stat-row">
           <div class="stat">Mkt cap<b>${fmtCap(stock.market_cap)}</b></div>
