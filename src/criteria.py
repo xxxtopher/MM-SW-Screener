@@ -39,7 +39,8 @@ OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "criteria_pass.csv"
 
 SMA_WINDOWS = (20, 50, 150, 200)
-TREND_LOOKBACK_DAYS = 30      # "rising" = today's SMA > SMA from 40 trading days ago
+TREND_LOOKBACK_DAYS_150 = 30   # "rising" = today's 150-day SMA > its value 30 trading days ago
+TREND_LOOKBACK_DAYS_200 = 150  # "rising" = today's 200-day SMA > its value 150 trading days ago (revised 2026-08-10)
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
 RS_LOOKBACK_DAYS = 63         # ~3 trading months, for relative strength vs SPX
@@ -78,8 +79,8 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     for w in SMA_WINDOWS:
         df[f"sma{w}"] = grp["close"].transform(lambda s, w=w: s.rolling(w).mean())
 
-    for w in (150, 200):
-        df[f"sma{w}_prior"] = grp[f"sma{w}"].transform(lambda s: s.shift(TREND_LOOKBACK_DAYS))
+    df["sma150_prior"] = grp["sma150"].transform(lambda s: s.shift(TREND_LOOKBACK_DAYS_150))
+    df["sma200_prior"] = grp["sma200"].transform(lambda s: s.shift(TREND_LOOKBACK_DAYS_200))
 
     df["low_52w"] = grp["low"].transform(
         lambda s: s.rolling(RANGE_WINDOW_DAYS, min_periods=RANGE_MIN_PERIODS).min()
