@@ -55,7 +55,7 @@ MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.28 x sma50 (i.e. no more than 28%
 # Tightness filter (added 2026-08-10): require price to be consolidating
 # close to its 20-day SMA, not running away from it - a proxy for "coiled,
 # ready to move" rather than "already extended in the short term."
-MAX_DIST_FROM_SMA20 = 0.05    # |close - sma20| / sma20 <= 5%
+MAX_DIST_FROM_SMA20 = 0.025    # |close - sma20| / sma20 <= 2.5%
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
