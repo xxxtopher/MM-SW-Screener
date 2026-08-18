@@ -2,12 +2,13 @@
 vcp.py
 
 Implements criterion 5 (Volatility Contraction Pattern): weekly price range
-OR weekly volume monotonically decreasing over the last N_WEEKS weeks
-(loosened 2026-08-10 from requiring both simultaneously to requiring
-either one; window extended from 4 to 6 weeks the same day for a deeper,
-more reliable base pattern).
+OR weekly volume monotonically decreasing over the N_WEEKS complete weeks
+BEFORE the most recent OFFSET_WEEKS. The current week is excluded from the
+contraction check (added 2026-08-10) so a genuine breakout - which
+typically shows expanding volume - doesn't get disqualified for not also
+contracting.
 
-Designed to run ONLY on the survivors of criteria 1-4 (from criteria.py),
+Designed to run ONLY on the survivors of criteria 1-4c (from criteria.py),
 not the full universe - this is the most computationally expensive check,
 so keeping it to a small subset is what makes the whole pipeline fast.
 
@@ -33,7 +34,11 @@ CRITERIA_CSV = REPO_ROOT / "output" / "criteria_pass.csv"
 OUTPUT_DIR = REPO_ROOT / "output"
 OUTPUT_CSV = OUTPUT_DIR / "vcp_pass.csv"
 
-N_WEEKS = 2                 # contraction window (shortened from 3 to 2 on 2026-08-10)
+N_WEEKS = 2                 # contraction window
+OFFSET_WEEKS = 1            # exclude the most recent OFFSET_WEEKS from the
+                             # contraction check (added 2026-08-10) - lets the
+                             # current week show an expanding breakout instead
+                             # of being disqualified for not also contracting
 MIN_DAYS_FOR_FULL_WEEK = 3  # weeks with fewer trading days than this are
                              # treated as partial (e.g. the current, still-
                              # in-progress week) and dropped
@@ -48,10 +53,6 @@ def to_weekly(df: pd.DataFrame) -> pd.DataFrame:
     Resamples daily OHLCV (long format: ticker, date, open, high, low,
     close, volume) into weekly bars, one grouped resample call across the
     whole input (not a per-ticker loop) for speed.
-
-    Weeks are anchored to Friday (W-FRI). A trading-day count per week is
-    kept so partial weeks (e.g. today's still-in-progress week, or short
-    holiday weeks) can be identified and dropped downstream.
     """
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
@@ -81,32 +82,41 @@ def to_weekly(df: pd.DataFrame) -> pd.DataFrame:
 def compute_vcp(daily_df: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """
     Filters daily_df to `tickers`, resamples to weekly, and checks whether
-    each ticker's last N_WEEKS complete weeks show monotonically decreasing
-    range AND monotonically decreasing volume.
+    the N_WEEKS complete weeks BEFORE the most recent OFFSET_WEEKS show
+    monotonically decreasing range OR monotonically decreasing volume.
 
-    Returns one row per ticker in `tickers` with the weekly figures used
-    and a boolean `crit5_vcp` column. Tickers without enough complete weeks
-    of history get crit5_vcp = False rather than raising.
+    The current week(s) are deliberately excluded from the contraction
+    check (added 2026-08-10): a genuine VCP breakout happens AFTER the
+    base has tightened, and the breakout itself typically shows EXPANDING
+    volume (institutional buying), not contracting. Requiring the most
+    recent week to also be contracting was disqualifying stocks in the
+    middle of exactly the kind of breakout this criterion should be
+    looking for - it also directly fought against short-window relative
+    strength gates (a stock can't have a strong last week AND a
+    contracting last week at the same time).
     """
     sub = daily_df[daily_df["ticker"].isin(tickers)].copy()
     weekly = to_weekly(sub)
 
-    # Drop partial weeks (not enough trading days in that week's bin) -
-    # most relevant for the current, still-in-progress week.
     weekly = weekly[weekly["n_days"] >= MIN_DAYS_FOR_FULL_WEEK]
 
     rows = []
     for ticker, g in weekly.groupby("ticker"):
         g = g.sort_values("date")
-        last_n = g.tail(N_WEEKS)
+        window = g.tail(N_WEEKS + OFFSET_WEEKS)
 
-        if len(last_n) < N_WEEKS:
+        if len(window) < N_WEEKS + OFFSET_WEEKS:
             rows.append({
                 "ticker": ticker, "crit5_vcp": False,
                 "weekly_ranges": None, "weekly_volumes": None,
-                "n_complete_weeks_available": len(last_n),
+                "n_complete_weeks_available": len(window),
             })
             continue
+
+        # Drop the most recent OFFSET_WEEKS - the base-contraction check
+        # only applies to the weeks BEFORE the current (potential breakout)
+        # week(s).
+        last_n = window.iloc[:-OFFSET_WEEKS] if OFFSET_WEEKS > 0 else window
 
         ranges = last_n["range"].tolist()      # oldest -> newest
         volumes = last_n["volume"].tolist()    # oldest -> newest
@@ -114,9 +124,6 @@ def compute_vcp(daily_df: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
         range_contracting = all(ranges[i] > ranges[i + 1] for i in range(len(ranges) - 1))
         volume_contracting = all(volumes[i] > volumes[i + 1] for i in range(len(volumes) - 1))
 
-        # Loosened 2026-08-10: require EITHER range OR volume to contract
-        # monotonically over the window, not both simultaneously. Was:
-        # range_contracting and volume_contracting.
         rows.append({
             "ticker": ticker,
             "crit5_vcp": bool(range_contracting or volume_contracting),
@@ -142,10 +149,10 @@ def main() -> None:
 
     criteria_df = pd.read_csv(CRITERIA_CSV)
     survivors = criteria_df[criteria_df["pass_all"]]["ticker"].tolist()
-    print(f"[vcp] {len(survivors)} tickers passed criteria 1-4, checking VCP on those only ...")
+    print(f"[vcp] {len(survivors)} tickers passed criteria 1-4c, checking VCP on those only ...")
 
     if not survivors:
-        print("[vcp] No survivors from criteria 1-4 - nothing to check. Exiting.")
+        print("[vcp] No survivors - nothing to check. Exiting.")
         return
 
     print(f"[vcp] Loading {LATEST_PRICES_PATH} ...")
@@ -162,7 +169,7 @@ def main() -> None:
 
     passers = result[result["crit5_vcp"]]["ticker"].tolist()
     if passers:
-        print(f"[vcp] Final screen (all 5 criteria) passing tickers: {passers}")
+        print(f"[vcp] Passing tickers: {passers}")
 
 
 if __name__ == "__main__":

@@ -3,21 +3,21 @@ screen.py
 
 Orchestrates the full screening pipeline:
   1. Load data/daily_prices/latest.parquet
-  2. Run criteria 1-4 (criteria.py) across the whole universe
-  3. Run criterion 5 / VCP (vcp.py) only on the criteria 1-4 survivors
+  2. Run criteria 1-4c (criteria.py) across the whole universe - includes
+     margin-based relative strength gates on 1-month, 2-week, and 3-month
+     horizons, plus an alpha_score for every ticker
+  3. Run criterion 5 / VCP (vcp.py) only on the criteria survivors
   4. Run criterion 6 / liquidity gate (liquidity.py) only on the VCP
-     survivors - market cap and 3-month average volume, for momentum
-     trading practicality
-  5. Combine into a final pass/fail list
-  6. For final passers, embed the last ~3 months of daily OHLC (for the
-     dashboard's mini price charts) directly into the output JSON so the
-     dashboard doesn't need a separate data call per stock
+     survivors
+  5. Rank all survivors by alpha_score and keep only the top TOP_N - a
+     stable-sized, quality-ranked final list rather than "everyone who
+     happens to clear the hard gates today" (added 2026-08-10)
+  6. For the top N, embed the last ~3 months of daily OHLC (for the
+     dashboard's mini price charts) directly into the output JSON
   7. Write output/screen_results.json
 
 This assumes data/daily_prices/latest.parquet is already fresh (i.e.
-fetch_prices.py has already been run). This script does not re-fetch
-prices itself, to keep the network-heavy step and the compute-heavy step
-separately runnable/debuggable.
+fetch_prices.py has already been run).
 
 Usage:
     python src/screen.py
@@ -46,6 +46,7 @@ VCP_CSV = OUTPUT_DIR / "vcp_pass.csv"
 LIQUIDITY_CSV = OUTPUT_DIR / "liquidity_pass.csv"
 
 CHART_LOOKBACK_DAYS = 65   # ~3 trading months, for the dashboard mini charts
+TOP_N = 30                 # show only the top N survivors, ranked by alpha_score
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +54,6 @@ CHART_LOOKBACK_DAYS = 65   # ~3 trading months, for the dashboard mini charts
 # ---------------------------------------------------------------------------
 
 def build_chart_data(daily_df: pd.DataFrame, tickers: list[str]) -> dict[str, list[dict]]:
-    """
-    For each ticker, returns its last CHART_LOOKBACK_DAYS daily bars as a
-    list of {date, open, high, low, close, volume} dicts, ready to embed
-    directly into the results JSON for client-side chart rendering.
-    """
     sub = daily_df[daily_df["ticker"].isin(tickers)].sort_values(["ticker", "date"])
 
     charts: dict[str, list[dict]] = {}
@@ -93,24 +89,28 @@ def main() -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("[screen] Fetching SPX 1-month and 2-week return benchmarks ...")
+    print("[screen] Fetching SPX 1-month, 2-week, and 3-month return benchmarks ...")
     spx_returns = fetch_spx_returns()
     spx_ret_1m = spx_returns["ret_1m"]
     spx_ret_2w = spx_returns["ret_2w"]
+    spx_ret_3m = spx_returns["ret_3m"]
     print(f"[screen] SPX 1-month return: {spx_ret_1m:.2%}")
     print(f"[screen] SPX 2-week return: {spx_ret_2w:.2%}")
+    print(f"[screen] SPX 3-month return: {spx_ret_3m:.2%}")
 
-    print("[screen] Running criteria 1-4 across the full universe ...")
-    criteria_result = compute_criteria(daily, spx_ret_1m=spx_ret_1m, spx_ret_2w=spx_ret_2w)
+    print("[screen] Running criteria 1-4c across the full universe ...")
+    criteria_result = compute_criteria(
+        daily, spx_ret_1m=spx_ret_1m, spx_ret_2w=spx_ret_2w, spx_ret_3m=spx_ret_3m
+    )
     criteria_result.to_csv(CRITERIA_CSV, index=False)
 
     survivors = criteria_result[criteria_result["pass_all"]]["ticker"].tolist()
-    print(f"[screen] {len(survivors)} of {len(criteria_result)} pass criteria 1-4")
+    print(f"[screen] {len(survivors)} of {len(criteria_result)} pass criteria 1-4c")
 
     if not survivors:
-        print("[screen] No survivors from criteria 1-4 - writing empty result set.")
-        vcp_result = pd.DataFrame(columns=["ticker", "crit5_vcp"])
+        print("[screen] No survivors from criteria 1-4c - writing empty result set.")
         vcp_passers: list[str] = []
+        liquidity_result = pd.DataFrame(columns=["ticker", "market_cap", "avg_volume_3m", "crit6_liquidity"])
     else:
         print(f"[screen] Running VCP check (criterion 5) on {len(survivors)} survivors ...")
         vcp_result = compute_vcp(daily, survivors)
@@ -122,7 +122,7 @@ def main() -> None:
     if not vcp_passers:
         print("[screen] No VCP survivors - skipping liquidity check.")
         liquidity_result = pd.DataFrame(columns=["ticker", "market_cap", "avg_volume_3m", "crit6_liquidity"])
-        final_tickers: list[str] = []
+        gated_tickers: list[str] = []
     else:
         print(
             f"[screen] Checking liquidity (market cap >= ${MIN_MARKET_CAP:,.0f}, "
@@ -130,19 +130,27 @@ def main() -> None:
         )
         liquidity_result = compute_liquidity(daily, vcp_passers)
         liquidity_result.to_csv(LIQUIDITY_CSV, index=False)
-        final_tickers = liquidity_result[liquidity_result["crit6_liquidity"]]["ticker"].tolist()
+        gated_tickers = liquidity_result[liquidity_result["crit6_liquidity"]]["ticker"].tolist()
 
-    print(f"[screen] {len(final_tickers)} tickers pass all 6 criteria: {final_tickers}")
+    print(f"[screen] {len(gated_tickers)} tickers pass all 6 hard-gate criteria")
+
+    # Rank all gate-passers by alpha_score and keep only the top N.
+    alpha_lookup = criteria_result.set_index("ticker")["alpha_score"].to_dict()
+    ranked_tickers = sorted(gated_tickers, key=lambda t: alpha_lookup.get(t, float("-inf")), reverse=True)
+    final_tickers = ranked_tickers[:TOP_N]
+
+    print(f"[screen] Showing top {len(final_tickers)} of {len(gated_tickers)} by alpha_score: {final_tickers}")
 
     print(f"[screen] Building {CHART_LOOKBACK_DAYS}-day chart data for the dashboard ...")
     chart_data = build_chart_data(daily, final_tickers)
 
-    # Merge summary stats (from criteria_result) and liquidity stats for
-    # each final passer, so the dashboard has key numbers to display
-    # alongside each chart without needing to re-derive them client-side.
     summary_cols = [
-        "ticker", "close", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w", "ret_1m", "spx_ret_1m", "ret_2w", "spx_ret_2w",
+        "ticker", "close", "sma20", "sma50", "sma150", "sma200",
+        "low_52w", "high_52w",
+        "ret_1m", "spx_ret_1m", "excess_1m",
+        "ret_2w", "spx_ret_2w", "excess_2w",
+        "ret_3m", "spx_ret_3m", "excess_3m",
+        "alpha_score",
     ]
     summary_lookup = (
         criteria_result[criteria_result["ticker"].isin(final_tickers)][summary_cols]
@@ -159,12 +167,14 @@ def main() -> None:
     )
 
     stocks_out = []
-    for ticker in final_tickers:
+    for rank, ticker in enumerate(final_tickers, start=1):
         stats = summary_lookup.get(ticker, {})
         liq = liquidity_lookup.get(ticker, {})
         stocks_out.append({
+            "rank": rank,
             "ticker": ticker,
             "close": stats.get("close"),
+            "sma20": stats.get("sma20"),
             "sma50": stats.get("sma50"),
             "sma150": stats.get("sma150"),
             "sma200": stats.get("sma200"),
@@ -174,6 +184,9 @@ def main() -> None:
             "spx_ret_1m": stats.get("spx_ret_1m"),
             "ret_2w": stats.get("ret_2w"),
             "spx_ret_2w": stats.get("spx_ret_2w"),
+            "ret_3m": stats.get("ret_3m"),
+            "spx_ret_3m": stats.get("spx_ret_3m"),
+            "alpha_score": stats.get("alpha_score"),
             "market_cap": liq.get("market_cap"),
             "avg_volume_3m": liq.get("avg_volume_3m"),
             "chart": chart_data.get(ticker, []),
@@ -182,13 +195,16 @@ def main() -> None:
     output = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "universe_size": int(daily["ticker"].nunique()),
-        "criteria_1_4_pass_count": len(survivors),
+        "criteria_1_4c_pass_count": len(survivors),
         "vcp_pass_count": len(vcp_passers),
+        "gated_pass_count": len(gated_tickers),
         "final_pass_count": len(final_tickers),
+        "top_n": TOP_N,
         "min_market_cap": MIN_MARKET_CAP,
         "min_avg_volume_3m": MIN_AVG_VOLUME,
         "spx_ret_1m": spx_ret_1m,
         "spx_ret_2w": spx_ret_2w,
+        "spx_ret_3m": spx_ret_3m,
         "stocks": stocks_out,
     }
 
