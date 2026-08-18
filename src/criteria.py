@@ -37,6 +37,7 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 import time
+import math
 
 # ---------------------------------------------------------------------------
 # Config
@@ -130,7 +131,13 @@ def fetch_spx_returns() -> dict[str, float]:
 
     Retries with increasing backoff on failure - Yahoo's rate limiter hits
     shared-IP environments like GitHub Actions runners harder than a home
-    connection.
+    connection. Also retries if the fetch "succeeds" but the specific
+    close values used turn out to be NaN (e.g. a stray gap in the series,
+    or an unfinalized same-day close) - a fetch that returns data isn't
+    the same as a fetch that returns USABLE data, and silently returning
+    NaN here poisons every relative-strength comparison downstream without
+    any visible error (found 2026-08-10: every RS gate was passing 0% of
+    the universe because spx_ret_1m/2w/3m were silently NaN).
     """
     last_error: Exception | None = None
     min_len = max(RS_LOOKBACK_DAYS, RS_LOOKBACK_DAYS_2W, RS_LOOKBACK_DAYS_3M) + 1
@@ -145,10 +152,30 @@ def fetch_spx_returns() -> dict[str, float]:
             if isinstance(close, pd.DataFrame):  # yfinance sometimes returns a 1-col DataFrame
                 close = close.iloc[:, 0]
 
+            # Drop any NaN rows (stray gaps, unfinalized/partial sessions)
+            # before indexing, so a single bad row doesn't corrupt the
+            # calculation - re-check length after dropping.
+            close = close.dropna()
+            if len(close) < min_len:
+                raise RuntimeError(
+                    f"SPX close series had only {len(close)} valid (non-NaN) "
+                    f"rows after dropping NaNs, need at least {min_len}."
+                )
+
             latest_close = close.iloc[-1]
             ret_1m = float(latest_close / close.iloc[-1 - RS_LOOKBACK_DAYS] - 1)
             ret_2w = float(latest_close / close.iloc[-1 - RS_LOOKBACK_DAYS_2W] - 1)
             ret_3m = float(latest_close / close.iloc[-1 - RS_LOOKBACK_DAYS_3M] - 1)
+
+            # Validate the computed values themselves - a "successful" fetch
+            # that still produces NaN (e.g. from an unexpected data shape)
+            # must not be returned silently.
+            if any(math.isnan(v) for v in (ret_1m, ret_2w, ret_3m)):
+                raise RuntimeError(
+                    f"Computed SPX returns contain NaN: ret_1m={ret_1m}, "
+                    f"ret_2w={ret_2w}, ret_3m={ret_3m}"
+                )
+
             return {"ret_1m": ret_1m, "ret_2w": ret_2w, "ret_3m": ret_3m}
 
         except Exception as exc:  # noqa: BLE001 - retry on anything, surface the last error if all fail
@@ -159,7 +186,7 @@ def fetch_spx_returns() -> dict[str, float]:
                 time.sleep(wait)
 
     raise RuntimeError(
-        f"Could not fetch SPX returns after {SPX_FETCH_RETRIES} attempts. Last error: {last_error}"
+        f"Could not fetch valid SPX returns after {SPX_FETCH_RETRIES} attempts. Last error: {last_error}"
     )
 
 
