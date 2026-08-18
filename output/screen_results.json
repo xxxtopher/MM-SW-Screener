@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-18T05:01:51.487448+00:00",
+  "generated_at_utc": "2026-08-18T05:14:16.156311+00:00",
   "universe_size": 2575,
   "criteria_1_4c_pass_count": 0,
   "vcp_pass_count": 0,
@@ -8,8 +8,8 @@
   "top_n": 30,
   "min_market_cap": 1000000000,
   "min_avg_volume_3m": 50000,
-  "spx_ret_1m": NaN,
-  "spx_ret_2w": NaN,
-  "spx_ret_3m": NaN,
+  "spx_ret_1m": null,
+  "spx_ret_2w": null,
+  "spx_ret_3m": null,
   "stocks": []
 }
