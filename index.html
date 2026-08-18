@@ -43,7 +43,6 @@
     padding: 32px 24px 80px;
   }
 
-  /* ---------- Header ---------- */
   header{
     display:flex;
     justify-content: space-between;
@@ -108,7 +107,6 @@
     color: var(--muted);
   }
 
-  /* ---------- Funnel strip (signature element) ---------- */
   .funnel{
     display:flex;
     gap: 2px;
@@ -173,7 +171,6 @@
     margin-top: 4px;
   }
 
-  /* ---------- Stock grid ---------- */
   .grid{
     display:grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -186,8 +183,27 @@
     border-radius: 10px;
     padding: 18px 18px 8px;
     transition: border-color 0.15s ease;
+    position: relative;
   }
   .card:hover{ border-color: #34404B; }
+
+  .rank-badge{
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #0A0D10;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border: 2px solid var(--bg);
+  }
 
   .card-head{
     display:flex;
@@ -230,6 +246,7 @@
     margin-top: 2px;
   }
   .stat.rs b{ color: var(--bull); }
+  .stat.alpha b{ color: var(--accent); }
 
   .chart-container{
     height: 150px;
@@ -237,7 +254,6 @@
     border-top: 1px solid var(--border);
   }
 
-  /* ---------- Empty / loading states ---------- */
   .state-message{
     font-family: var(--font-mono);
     color: var(--muted);
@@ -275,9 +291,9 @@
 
   <header>
     <div>
-      <div class="brand-eyebrow">Trend Template · Stage 2 · VCP</div>
+      <div class="brand-eyebrow">Trend Template · Stage 2 · VCP · Alpha Rank</div>
       <h1>Trend Screen</h1>
-      <div class="subtitle">Daily technical scan of the Russell 3000, built on Minervini's Trend Template and Stan Weinstein's Stage Analysis, narrowed to stocks showing volatility contraction.</div>
+      <div class="subtitle">Daily technical scan of the Russell 3000, built on Minervini's Trend Template and Stan Weinstein's Stage Analysis, ranked by multi-timeframe outperformance vs the S&amp;P 500.</div>
     </div>
     <div class="header-right">
       <button id="refreshBtn">Refresh results</button>
@@ -292,19 +308,19 @@
       <div class="funnel-sub">Russell 3000 constituents</div>
     </div>
     <div class="funnel-stage">
-      <div class="funnel-label">Trend Template</div>
+      <div class="funnel-label">Trend + RS Gates</div>
       <div class="funnel-value" id="statCriteria">—</div>
-      <div class="funnel-sub">Stage 2 · above rising 150/200 SMA</div>
+      <div class="funnel-sub">Stage 2 · outperform SPX on 1m/2w/3m</div>
     </div>
     <div class="funnel-stage">
       <div class="funnel-label">VCP Setups</div>
       <div class="funnel-value" id="statVcp">—</div>
-      <div class="funnel-sub">2-week range or volume contraction</div>
+      <div class="funnel-sub">base contraction + liquidity</div>
     </div>
     <div class="funnel-stage final">
-      <div class="funnel-label">Liquid Setups</div>
+      <div class="funnel-label">Top Ranked</div>
       <div class="funnel-value" id="statFinal">—</div>
-      <div class="funnel-sub" id="liquiditySub">market cap &amp; volume filter</div>
+      <div class="funnel-sub" id="topNSub">by alpha score</div>
     </div>
   </div>
 
@@ -314,8 +330,10 @@
 
   <footer>
     Criteria: close above rising 50/150/200-day SMA · at least 20% above the 52-week low and within 40% of the 52-week high ·
-    1-month AND 2-week return beating the S&amp;P 500 · 2-week weekly range or volume contracting ·
+    outperforms the S&amp;P 500 with a margin on 1-month, 2-week, AND 3-month returns · not more than 28% above the 50-day SMA ·
+    within 15% of the 20-day SMA · 2-week base contraction (range or volume) before the current week ·
     market cap and 3-month average volume above the liquidity thresholds shown above.
+    Survivors are ranked by Alpha Score (a weighted blend of excess return over SPX across all three horizons) and only the top names are shown.
     Results refresh automatically after each US market close. This is not investment advice.
   </footer>
 
@@ -332,7 +350,7 @@
     statCriteria: document.getElementById('statCriteria'),
     statVcp: document.getElementById('statVcp'),
     statFinal: document.getElementById('statFinal'),
-    liquiditySub: document.getElementById('liquiditySub'),
+    topNSub: document.getElementById('topNSub'),
     refreshBtn: document.getElementById('refreshBtn'),
   };
 
@@ -379,7 +397,7 @@
     el.content.innerHTML = `
       <div class="state-message">
         <strong>No setups today</strong>
-        No stocks currently satisfy every criterion — Trend Template, Stage 2, and a tightening VCP base all at once.
+        No stocks currently satisfy every criterion — Trend Template, Stage 2, multi-timeframe outperformance, and a tightening VCP base all at once.
         Check back after the next close.
       </div>`;
   }
@@ -400,14 +418,10 @@
       const card = document.createElement('div');
       card.className = 'card';
 
-      const rsDelta = (stock.ret_1m !== null && stock.spx_ret_1m !== null)
-        ? stock.ret_1m - stock.spx_ret_1m : null;
-      const rsDelta2w = (stock.ret_2w !== null && stock.spx_ret_2w !== null)
-        ? stock.ret_2w - stock.spx_ret_2w : null;
-
       const rangePos = pctFromHighLow(stock.close, stock.low_52w, stock.high_52w);
 
       card.innerHTML = `
+        <div class="rank-badge">${stock.rank}</div>
         <div class="card-head">
           <div class="ticker">${stock.ticker}</div>
           <div class="close-price">${fmtPrice(stock.close)}</div>
@@ -415,11 +429,11 @@
         <div class="stat-row">
           <div class="stat">52W range<b>${rangePos !== null ? (rangePos*100).toFixed(0) + '%' : '—'}</b></div>
           <div class="stat">1M return<b>${fmtPct(stock.ret_1m)}</b></div>
-          <div class="stat rs">vs SPX (1M)<b>${fmtPct(rsDelta)}</b></div>
+          <div class="stat alpha">Alpha<b>${fmtPct(stock.alpha_score)}</b></div>
         </div>
         <div class="stat-row">
-          <div class="stat">2W return<b>${fmtPct(stock.ret_2w)}</b></div>
-          <div class="stat rs">vs SPX (2W)<b>${fmtPct(rsDelta2w)}</b></div>
+          <div class="stat">2W excess<b>${fmtPct(stock.ret_2w - stock.spx_ret_2w)}</b></div>
+          <div class="stat rs">3M excess<b>${fmtPct(stock.ret_3m - stock.spx_ret_3m)}</b></div>
         </div>
         <div class="stat-row">
           <div class="stat">Mkt cap<b>${fmtCap(stock.market_cap)}</b></div>
@@ -484,14 +498,12 @@
 
       el.lastRun.textContent = 'Last run: ' + fmtDate(data.generated_at_utc);
       el.statUniverse.textContent = data.universe_size ?? '—';
-      el.statCriteria.textContent = data.criteria_1_4_pass_count ?? '—';
-      el.statVcp.textContent = data.vcp_pass_count ?? '—';
+      el.statCriteria.textContent = data.criteria_1_4c_pass_count ?? '—';
+      el.statVcp.textContent = data.gated_pass_count ?? '—';
       el.statFinal.textContent = data.final_pass_count ?? '—';
 
-      if (data.min_market_cap && data.min_avg_volume_3m){
-        const capB = (data.min_market_cap / 1e9).toFixed(0);
-        const volK = (data.min_avg_volume_3m / 1000).toFixed(0);
-        el.liquiditySub.textContent = `cap ≥ $${capB}B · vol ≥ ${volK}k/day`;
+      if (data.top_n){
+        el.topNSub.textContent = `top ${data.top_n} by alpha score`;
       }
 
       if (!data.stocks || data.stocks.length === 0){
