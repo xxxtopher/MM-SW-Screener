@@ -24,6 +24,7 @@ Usage:
 """
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,29 @@ LIQUIDITY_CSV = OUTPUT_DIR / "liquidity_pass.csv"
 
 CHART_LOOKBACK_DAYS = 65   # ~3 trading months, for the dashboard mini charts
 TOP_N = 30                 # show only the top N survivors, ranked by alpha_score
+
+
+def _sanitize_for_json(obj):
+    """
+    Recursively replaces NaN/Infinity floats with None.
+
+    Python's json.dump() allows NaN/Infinity by default and writes them as
+    bare `NaN`/`Infinity` tokens - valid Python, but NOT valid strict JSON
+    (RFC 8259). Browsers correctly reject it with a parse error. Any stock
+    with insufficient history for a given calculation (e.g. a recent IPO)
+    can produce a NaN somewhere in its row, so this sanitizer is applied to
+    the whole output right before writing, rather than trying to guess
+    every individual field that might be affected.
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +233,7 @@ def main() -> None:
     }
 
     with open(RESULTS_JSON, "w") as f:
-        json.dump(output, f, indent=2, default=str)
+        json.dump(_sanitize_for_json(output), f, indent=2, default=str)
 
     print(f"[screen] Wrote final results (with chart data) to {RESULTS_JSON}")
 
