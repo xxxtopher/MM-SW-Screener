@@ -216,6 +216,18 @@ def compute_criteria(
     latest["crit4b_outperform_2w"] = latest["excess_2w"] >= RS_MARGIN_2W
     latest["crit4c_relative_strength_3m"] = latest["excess_3m"] >= RS_MARGIN_3M
 
+    # Loosened 2026-08-10: require at least 2 of these 3 RS gates to pass,
+    # not all 3 simultaneously. Requiring all 3 at once was producing
+    # zero-result days even after lowering the individual margins, since a
+    # stock's short and long RS windows don't always line up on the same
+    # day even when it's a genuinely strong performer overall.
+    latest["rs_gates_passed_count"] = (
+        latest["crit4_relative_strength"].astype(int)
+        + latest["crit4b_outperform_2w"].astype(int)
+        + latest["crit4c_relative_strength_3m"].astype(int)
+    )
+    latest["crit4_rs_combined"] = latest["rs_gates_passed_count"] >= 2
+
     latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
     latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
 
@@ -232,9 +244,7 @@ def compute_criteria(
         latest["crit1_above_smas"]
         & latest["crit2_sma_rising"]
         & latest["crit3_52w_range"]
-        & latest["crit4_relative_strength"]
-        & latest["crit4b_outperform_2w"]
-        & latest["crit4c_relative_strength_3m"]
+        & latest["crit4_rs_combined"]
         & latest["crit_not_extended"]
         & latest["crit_near_sma20"]
     )
@@ -245,7 +255,7 @@ def compute_criteria(
     bool_cols = [
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
-        "crit_not_extended", "crit_near_sma20", "pass_all",
+        "crit4_rs_combined", "crit_not_extended", "crit_near_sma20", "pass_all",
     ]
     for col in bool_cols:
         latest[col] = latest[col].fillna(False)
@@ -260,6 +270,7 @@ def compute_criteria(
         "extension_pct", "dist_from_sma20_pct", "alpha_score",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
+        "rs_gates_passed_count", "crit4_rs_combined",
         "crit_not_extended", "crit_near_sma20", "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
