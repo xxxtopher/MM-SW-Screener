@@ -62,9 +62,9 @@ RS_LOOKBACK_DAYS_3M = 63       # ~3 trading months (re-added 2026-08-10)
 # beating SPX by ANY amount, even 0.01%. Requiring an explicit minimum
 # margin on each horizon makes this a genuine outperformance filter rather
 # than a coin-flip around the benchmark.
-RS_MARGIN_1M = 0.03   # must beat SPX's 1-month return by >= 3 percentage points
-RS_MARGIN_2W = 0.02   # must beat SPX's 2-week return by >= 2 percentage points
-RS_MARGIN_3M = 0.05   # must beat SPX's 3-month return by >= 5 percentage points
+RS_MARGIN_1M = 0.01   # must beat SPX's 1-month return by >= 1 percentage point (loosened from 3pp on 2026-08-10)
+RS_MARGIN_2W = 0.005  # must beat SPX's 2-week return by >= 0.5 percentage points (loosened from 2pp on 2026-08-10)
+RS_MARGIN_3M = 0.02   # must beat SPX's 3-month return by >= 2 percentage points (loosened from 5pp on 2026-08-10)
 
 # Alpha Score weights (added 2026-08-10): used to rank survivors, not to
 # gate them. Weights sum to 1.0. Weighted toward 1-month and 3-month
