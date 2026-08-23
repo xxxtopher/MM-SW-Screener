@@ -94,7 +94,7 @@ SMA20_PULLBACK_HIGH = 0.05    # close <= sma20 * (1 + 0.05), i.e. no more than 5
 # Pullback-from-high filter: stock must have pulled back 5-20% from its
 # RECENT_HIGH_WINDOW-day high - it was running, pulled back, but hasn't
 # collapsed. Below 5% = barely retraced. Above 20% = too much damage.
-PULLBACK_FROM_HIGH_MIN = 0.05  # at least 5% below the recent high
+PULLBACK_FROM_HIGH_MIN = 0.03  # at least 3% below the recent high (loosened from 5% on 2026-08-18)
 PULLBACK_FROM_HIGH_MAX = 0.20  # no more than 20% below the recent high
 
 # Volume confirmation on pullback: average volume over the last 2 weeks
@@ -294,20 +294,26 @@ def compute_criteria(
         & (latest["dist_from_sma20_pct"] <= SMA20_PULLBACK_HIGH)
     )
 
-    # Criterion 7: pulled back 5-20% from the RECENT_HIGH_WINDOW-day high
-    # (stock was running, has genuinely retraced but not collapsed)
+    # Criterion 7: pulled back 3-20% from the RECENT_HIGH_WINDOW-day high
+    # (min loosened from 5% to 3% on 2026-08-18: data showed most candidates
+    # were pulling back 3-5%, sitting just below the old 5% minimum)
     latest["pullback_from_high_pct"] = (latest["high_recent"] - latest["close"]) / latest["high_recent"]
     latest["crit_pullback_from_high"] = (
         (latest["pullback_from_high_pct"] >= PULLBACK_FROM_HIGH_MIN)
         & (latest["pullback_from_high_pct"] <= PULLBACK_FROM_HIGH_MAX)
     )
 
-    # Criterion 8: momentum accelerating — 1-month excess return > 3-month
-    # excess return (RS is improving, not coasting on older gains)
-    latest["crit_momentum_accelerating"] = latest["excess_1m"] > latest["excess_3m"]
+    # Criterion 8: momentum not decelerating — 1-month excess return must be
+    # at least 70% of the 3-month excess return (loosened from strict >
+    # on 2026-08-18: in a broad bull market, excess_1m > excess_3m is very
+    # hard to clear; 0.7x still filters clear decelerators while allowing
+    # normal short-term noise in RS)
+    latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.7
 
-    # Criterion 9: low-volume pullback — recent 2-week average volume is
-    # below the 3-month average volume (selling is light/disinterested)
+    # Criterion 9: low-volume pullback — still computed for transparency in
+    # the CSV, but removed from pass_all on 2026-08-18 (only dropped 10→7
+    # stocks, contributing almost nothing while adding complexity; reinstate
+    # when the market offers deeper pullbacks with clearer volume signals)
     latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
     latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
 
@@ -326,7 +332,6 @@ def compute_criteria(
         & latest["crit_near_sma20"]
         & latest["crit_pullback_from_high"]
         & latest["crit_momentum_accelerating"]
-        & latest["crit_low_vol_pullback"]
     )
 
     # NaNs (insufficient history) propagate as False in the boolean columns
