@@ -4,20 +4,26 @@ criteria.py
 Implements screening criteria 1-4c (everything except VCP and liquidity)
 across the full universe, using data/daily_prices/latest.parquet as input.
 
-Criteria:
+Criteria (revised 2026-08-18 for pullback-entry targeting):
   1. Close > 50-day SMA, Close > 150-day SMA, Close > 200-day SMA
   2. 150-day SMA today > its value 30 trading days ago; 200-day SMA today
      > its value 150 trading days ago
   3. Close >= 1.20 x 52-week low, AND Close >= 0.60 x 52-week high
      (at least 20% above the low, no more than 40% below the high)
-  4. 1-month return beats SPX's 1-month return by at least RS_MARGIN_1M
-  4b. 2-week return beats SPX's 2-week return by at least RS_MARGIN_2W
-  4c. 3-month return beats SPX's 3-month return by at least RS_MARGIN_3M
-      (added back 2026-08-10, alongside explicit margins on 4/4b, to
-       tighten relative strength into a genuine multi-timeframe gate
-       rather than "beats SPX by any amount")
-  5. Close <= 1.28 x 50-day SMA (anti-chasing guardrail)
-  6. |Close - 20-day SMA| / 20-day SMA <= 15% (tightness/consolidation)
+  4. At least 2 of 3 RS gates pass (any 2 of: 1m, 2w, 3m vs SPX margins)
+  5. Close <= 1.15 x 50-day SMA (tightened from 1.28: requires genuine
+     pullback from extension, not just "not too far above")
+  6. Price between -5% and +5% of 20-day SMA (directional pullback zone:
+     price has come back to or just below the 20-day SMA - changed from
+     symmetric |distance| <= 15%)
+  7. Close is 5-20% below the 20-day high (stock has genuinely pulled back
+     from a recent high but not collapsed - new criterion 2026-08-18)
+  8. Momentum accelerating: excess_1m > excess_3m (1-month outperformance
+     vs SPX is greater than 3-month outperformance vs SPX, meaning RS is
+     improving - replaces the 2-week margin gate as the acceleration proxy)
+  9. Low-volume pullback: average volume over last 10 days < 3-month avg
+     volume (pullback is on low, disinterested selling, not distribution -
+     merged from VCP volume contraction, applied here at the criteria level)
 
 Also computes `alpha_score` for every ticker (regardless of pass/fail) - a
 weighted blend of excess return over SPX across the three RS horizons.
@@ -55,21 +61,18 @@ TREND_LOOKBACK_DAYS_200 = 150  # "rising" = today's 200-day SMA > its value 150 
 RANGE_WINDOW_DAYS = 252       # ~1 trading year, for 52-week high/low
 RANGE_MIN_PERIODS = 100       # allow a slightly shorter history before computing 52wk range
 
+RECENT_HIGH_WINDOW = 20       # trading days for the "pulled back from recent high" check
+
 RS_LOOKBACK_DAYS = 21          # ~1 trading month
 RS_LOOKBACK_DAYS_2W = 10       # ~2 trading weeks
-RS_LOOKBACK_DAYS_3M = 63       # ~3 trading months (re-added 2026-08-10)
+RS_LOOKBACK_DAYS_3M = 63       # ~3 trading months
 
-# Margin-based RS gates (added 2026-08-10): previously a stock passed by
-# beating SPX by ANY amount, even 0.01%. Requiring an explicit minimum
-# margin on each horizon makes this a genuine outperformance filter rather
-# than a coin-flip around the benchmark.
-RS_MARGIN_1M = 0.01   # must beat SPX's 1-month return by >= 1 percentage point (loosened from 3pp on 2026-08-10)
-RS_MARGIN_2W = 0.005  # must beat SPX's 2-week return by >= 0.5 percentage points (loosened from 2pp on 2026-08-10)
-RS_MARGIN_3M = 0.02   # must beat SPX's 3-month return by >= 2 percentage points (loosened from 5pp on 2026-08-10)
+# Margin-based RS gates
+RS_MARGIN_1M = 0.01   # must beat SPX's 1-month return by >= 1 percentage point
+RS_MARGIN_2W = 0.005  # must beat SPX's 2-week return by >= 0.5 percentage points
+RS_MARGIN_3M = 0.02   # must beat SPX's 3-month return by >= 2 percentage points
 
-# Alpha Score weights (added 2026-08-10): used to rank survivors, not to
-# gate them. Weights sum to 1.0. Weighted toward 1-month and 3-month
-# (recency + stability) with less weight on the noisier 2-week window.
+# Alpha Score weights: used to rank survivors, not to gate them.
 ALPHA_WEIGHT_1M = 0.4
 ALPHA_WEIGHT_2W = 0.2
 ALPHA_WEIGHT_3M = 0.4
@@ -77,13 +80,27 @@ ALPHA_WEIGHT_3M = 0.4
 ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high
 
-# Anti-chasing guardrail: Minervini's rule of thumb is to avoid buying a
-# stock more than ~25-30% above its 50-day SMA.
-MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.28 x sma50
+# Anti-extension guardrail: tightened from 1.28 (28%) to 1.15 (15%) on
+# 2026-08-18 to require a genuine pullback from extension - a stock still
+# 28% above its 50-day SMA hasn't really pulled back.
+MAX_EXTENSION_ABOVE_50SMA = 1.15  # close <= 1.15 x sma50
 
-# Tightness filter: require price to be consolidating close to its 20-day
-# SMA, not running away from it.
-MAX_DIST_FROM_SMA20 = 0.15    # |close - sma20| / sma20 <= 15%
+# Pullback zone: price must be between -5% and +5% of the 20-day SMA
+# (directional filter targeting stocks that have retraced back toward the
+# 20-day SMA, not just "near it in any direction").
+SMA20_PULLBACK_LOW = -0.05    # close >= sma20 * (1 - 0.05), i.e. no more than 5% below
+SMA20_PULLBACK_HIGH = 0.05    # close <= sma20 * (1 + 0.05), i.e. no more than 5% above
+
+# Pullback-from-high filter: stock must have pulled back 5-20% from its
+# RECENT_HIGH_WINDOW-day high - it was running, pulled back, but hasn't
+# collapsed. Below 5% = barely retraced. Above 20% = too much damage.
+PULLBACK_FROM_HIGH_MIN = 0.05  # at least 5% below the recent high
+PULLBACK_FROM_HIGH_MAX = 0.20  # no more than 20% below the recent high
+
+# Volume confirmation on pullback: average volume over the last 2 weeks
+# must be below the 3-month average volume (selling into the pullback is
+# light/disinterested, not distribution). Ratio below 1.0 = low-vol dip.
+PULLBACK_VOL_RATIO_MAX = 1.0  # recent_vol / avg_3m_vol < 1.0
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
@@ -119,6 +136,20 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ret_1m"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS) - 1)
     df["ret_2w"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS_2W) - 1)
     df["ret_3m"] = grp["close"].transform(lambda s: s / s.shift(RS_LOOKBACK_DAYS_3M) - 1)
+
+    # Recent high over last RECENT_HIGH_WINDOW days (for pullback-from-high filter)
+    df["high_recent"] = grp["high"].transform(
+        lambda s: s.rolling(RECENT_HIGH_WINDOW).max()
+    )
+
+    # Recent average volume over last 2 weeks vs 3-month average volume
+    # (for low-volume-pullback confirmation)
+    df["avg_vol_3m"] = grp["volume"].transform(
+        lambda s: s.rolling(RS_LOOKBACK_DAYS_3M).mean()
+    )
+    df["avg_vol_2w"] = grp["volume"].transform(
+        lambda s: s.rolling(RS_LOOKBACK_DAYS_2W).mean()
+    )
 
     return df
 
@@ -243,11 +274,7 @@ def compute_criteria(
     latest["crit4b_outperform_2w"] = latest["excess_2w"] >= RS_MARGIN_2W
     latest["crit4c_relative_strength_3m"] = latest["excess_3m"] >= RS_MARGIN_3M
 
-    # Loosened 2026-08-10: require at least 2 of these 3 RS gates to pass,
-    # not all 3 simultaneously. Requiring all 3 at once was producing
-    # zero-result days even after lowering the individual margins, since a
-    # stock's short and long RS windows don't always line up on the same
-    # day even when it's a genuinely strong performer overall.
+    # Require at least 2 of 3 RS gates
     latest["rs_gates_passed_count"] = (
         latest["crit4_relative_strength"].astype(int)
         + latest["crit4b_outperform_2w"].astype(int)
@@ -255,11 +282,34 @@ def compute_criteria(
     )
     latest["crit4_rs_combined"] = latest["rs_gates_passed_count"] >= 2
 
+    # Criterion 5: tightened extension cap (was 28%, now 15%)
     latest["extension_pct"] = latest["close"] / latest["sma50"] - 1
     latest["crit_not_extended"] = latest["close"] <= MAX_EXTENSION_ABOVE_50SMA * latest["sma50"]
 
-    latest["dist_from_sma20_pct"] = (latest["close"] - latest["sma20"]).abs() / latest["sma20"]
-    latest["crit_near_sma20"] = latest["dist_from_sma20_pct"] <= MAX_DIST_FROM_SMA20
+    # Criterion 6: directional pullback zone — price between -5% and +5% of
+    # 20-day SMA (replaced symmetric |distance| <= 15%)
+    latest["dist_from_sma20_pct"] = (latest["close"] - latest["sma20"]) / latest["sma20"]
+    latest["crit_near_sma20"] = (
+        (latest["dist_from_sma20_pct"] >= SMA20_PULLBACK_LOW)
+        & (latest["dist_from_sma20_pct"] <= SMA20_PULLBACK_HIGH)
+    )
+
+    # Criterion 7: pulled back 5-20% from the RECENT_HIGH_WINDOW-day high
+    # (stock was running, has genuinely retraced but not collapsed)
+    latest["pullback_from_high_pct"] = (latest["high_recent"] - latest["close"]) / latest["high_recent"]
+    latest["crit_pullback_from_high"] = (
+        (latest["pullback_from_high_pct"] >= PULLBACK_FROM_HIGH_MIN)
+        & (latest["pullback_from_high_pct"] <= PULLBACK_FROM_HIGH_MAX)
+    )
+
+    # Criterion 8: momentum accelerating — 1-month excess return > 3-month
+    # excess return (RS is improving, not coasting on older gains)
+    latest["crit_momentum_accelerating"] = latest["excess_1m"] > latest["excess_3m"]
+
+    # Criterion 9: low-volume pullback — recent 2-week average volume is
+    # below the 3-month average volume (selling is light/disinterested)
+    latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
+    latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
 
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
@@ -274,6 +324,9 @@ def compute_criteria(
         & latest["crit4_rs_combined"]
         & latest["crit_not_extended"]
         & latest["crit_near_sma20"]
+        & latest["crit_pullback_from_high"]
+        & latest["crit_momentum_accelerating"]
+        & latest["crit_low_vol_pullback"]
     )
 
     # NaNs (insufficient history) propagate as False in the boolean columns
@@ -282,7 +335,9 @@ def compute_criteria(
     bool_cols = [
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
-        "crit4_rs_combined", "crit_not_extended", "crit_near_sma20", "pass_all",
+        "crit4_rs_combined", "crit_not_extended", "crit_near_sma20",
+        "crit_pullback_from_high", "crit_momentum_accelerating", "crit_low_vol_pullback",
+        "pass_all",
     ]
     for col in bool_cols:
         latest[col] = latest[col].fillna(False)
@@ -290,15 +345,18 @@ def compute_criteria(
     keep_cols = [
         "ticker", "date", "close",
         "sma20", "sma50", "sma150", "sma200",
-        "low_52w", "high_52w",
+        "low_52w", "high_52w", "high_recent",
         "ret_1m", "spx_ret_1m", "excess_1m",
         "ret_2w", "spx_ret_2w", "excess_2w",
         "ret_3m", "spx_ret_3m", "excess_3m",
-        "extension_pct", "dist_from_sma20_pct", "alpha_score",
+        "extension_pct", "dist_from_sma20_pct",
+        "pullback_from_high_pct", "vol_ratio_2w_vs_3m", "alpha_score",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
         "rs_gates_passed_count", "crit4_rs_combined",
-        "crit_not_extended", "crit_near_sma20", "pass_all",
+        "crit_not_extended", "crit_near_sma20",
+        "crit_pullback_from_high", "crit_momentum_accelerating", "crit_low_vol_pullback",
+        "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
 
