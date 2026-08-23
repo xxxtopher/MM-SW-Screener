@@ -89,18 +89,18 @@ MAX_EXTENSION_ABOVE_50SMA = 1.15  # close <= 1.15 x sma50
 # (directional filter targeting stocks that have retraced back toward the
 # 20-day SMA, not just "near it in any direction").
 SMA20_PULLBACK_LOW = -0.05    # close >= sma20 * (1 - 0.05), i.e. no more than 5% below
-SMA20_PULLBACK_HIGH = 0.08    # close <= sma20 * (1 + 0.05), i.e. no more than 8% above
+SMA20_PULLBACK_HIGH = 0.05    # close <= sma20 * (1 + 0.05), i.e. no more than 5% above
 
 # Pullback-from-high filter: stock must have pulled back 5-20% from its
 # RECENT_HIGH_WINDOW-day high - it was running, pulled back, but hasn't
 # collapsed. Below 5% = barely retraced. Above 20% = too much damage.
-PULLBACK_FROM_HIGH_MIN = 0.01  # at least 1% below the recent high (loosened from 5% on 2026-08-18)
-PULLBACK_FROM_HIGH_MAX = 0.30  # no more than 30% below the recent high
+PULLBACK_FROM_HIGH_MIN = 0.03  # at least 3% below the recent high (loosened from 5% on 2026-08-18)
+PULLBACK_FROM_HIGH_MAX = 0.20  # no more than 20% below the recent high
 
 # Volume confirmation on pullback: average volume over the last 2 weeks
 # must be below the 3-month average volume (selling into the pullback is
 # light/disinterested, not distribution). Ratio below 1.0 = low-vol dip.
-# PULLBACK_VOL_RATIO_MAX = 1.0  # recent_vol / avg_3m_vol < 1.0
+PULLBACK_VOL_RATIO_MAX = 1.0  # recent_vol / avg_3m_vol < 1.0
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
@@ -314,8 +314,8 @@ def compute_criteria(
     # the CSV, but removed from pass_all on 2026-08-18 (only dropped 10→7
     # stocks, contributing almost nothing while adding complexity; reinstate
     # when the market offers deeper pullbacks with clearer volume signals)
-    # latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
-    # latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
+    latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
+    latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
 
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
