@@ -314,8 +314,8 @@ def compute_criteria(
     # the CSV, but removed from pass_all on 2026-08-18 (only dropped 10→7
     # stocks, contributing almost nothing while adding complexity; reinstate
     # when the market offers deeper pullbacks with clearer volume signals)
-    latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
-    latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
+    # latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
+    # latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
 
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
