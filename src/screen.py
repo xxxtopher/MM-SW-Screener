@@ -47,7 +47,7 @@ VCP_CSV = OUTPUT_DIR / "vcp_pass.csv"
 LIQUIDITY_CSV = OUTPUT_DIR / "liquidity_pass.csv"
 
 CHART_LOOKBACK_DAYS = 65   # ~3 trading months, for the dashboard mini charts
-TOP_N = 60                 # show only the top N survivors, ranked by alpha_score
+TOP_N = 80                 # show only the top N survivors, ranked by alpha_score
 
 
 def _sanitize_for_json(obj):
