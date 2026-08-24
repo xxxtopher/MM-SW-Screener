@@ -77,22 +77,22 @@ ALPHA_WEIGHT_3M = 0.4
 ABOVE_LOW_MULT = 1.20         # price >= 1.20 x 52wk low
 BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of the high
 
-# Anti-extension guardrail: tightened from 1.28 (28%) to 1.15 (15%) on
+# Anti-extension guardrail: tightened from 1.28 (28%) to 1.25 (25%) on
 # 2026-08-18 to require a genuine pullback from extension - a stock still
 # 28% above its 50-day SMA hasn't really pulled back.
-MAX_EXTENSION_ABOVE_50SMA = 1.15  # close <= 1.15 x sma50
+MAX_EXTENSION_ABOVE_50SMA = 1.25  # close <= 1.25 x sma50
 
 # Pullback zone: price must be between -5% and +5% of the 20-day SMA
 # (directional filter targeting stocks that have retraced back toward the
 # 20-day SMA, not just "near it in any direction").
 SMA20_PULLBACK_LOW = -0.05    # close >= sma20 * (1 - 0.05), i.e. no more than 5% below
-SMA20_PULLBACK_HIGH = 0.05    # close <= sma20 * (1 + 0.05), i.e. no more than 5% above
+SMA20_PULLBACK_HIGH = 0.1    # close <= sma20 * (1 + 0.1), i.e. no more than 5% above
 
 # Pullback-from-high filter: stock must have pulled back 5-20% from its
 # RECENT_HIGH_WINDOW-day high - it was running, pulled back, but hasn't
 # collapsed. Below 5% = barely retraced. Above 20% = too much damage.
-PULLBACK_FROM_HIGH_MIN = 0.03  # at least 3% below the recent high (loosened from 5% on 2026-08-18)
-PULLBACK_FROM_HIGH_MAX = 0.20  # no more than 20% below the recent high
+PULLBACK_FROM_HIGH_MIN = 0.01  # at least 3% below the recent high (loosened from 5% on 2026-08-18)
+PULLBACK_FROM_HIGH_MAX = 0.25  # no more than 20% below the recent high
 
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
