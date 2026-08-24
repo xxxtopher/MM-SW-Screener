@@ -291,7 +291,7 @@ def compute_criteria(
     # on 2026-08-18: in a broad bull market, excess_1m > excess_3m is very
     # hard to clear; 0.7x still filters clear decelerators while allowing
     # normal short-term noise in RS)
-    latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.7
+    latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.5
 
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
