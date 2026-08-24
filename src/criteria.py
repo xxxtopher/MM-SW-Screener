@@ -18,12 +18,9 @@ Criteria (revised 2026-08-18 for pullback-entry targeting):
      symmetric |distance| <= 15%)
   7. Close is 5-20% below the 20-day high (stock has genuinely pulled back
      from a recent high but not collapsed - new criterion 2026-08-18)
-  8. Momentum accelerating: excess_1m > excess_3m (1-month outperformance
-     vs SPX is greater than 3-month outperformance vs SPX, meaning RS is
-     improving - replaces the 2-week margin gate as the acceleration proxy)
-  9. Low-volume pullback: average volume over last 10 days < 3-month avg
-     volume (pullback is on low, disinterested selling, not distribution -
-     merged from VCP volume contraction, applied here at the criteria level)
+  8. Momentum not decelerating: excess_1m >= excess_3m x 0.7 (1-month
+     outperformance vs SPX must be at least 70% of 3-month outperformance -
+     replaces the 2-week margin gate as the acceleration proxy)
 
 Also computes `alpha_score` for every ticker (regardless of pass/fail) - a
 weighted blend of excess return over SPX across the three RS horizons.
@@ -97,11 +94,6 @@ SMA20_PULLBACK_HIGH = 0.05    # close <= sma20 * (1 + 0.05), i.e. no more than 5
 PULLBACK_FROM_HIGH_MIN = 0.03  # at least 3% below the recent high (loosened from 5% on 2026-08-18)
 PULLBACK_FROM_HIGH_MAX = 0.20  # no more than 20% below the recent high
 
-# Volume confirmation on pullback: average volume over the last 2 weeks
-# must be below the 3-month average volume (selling into the pullback is
-# light/disinterested, not distribution). Ratio below 1.0 = low-vol dip.
-PULLBACK_VOL_RATIO_MAX = 1.0  # recent_vol / avg_3m_vol < 1.0
-
 SPX_TICKER = "^GSPC"
 SPX_FETCH_RETRIES = 4
 SPX_FETCH_BACKOFF_SEC = (10, 30, 60, 120)  # increasing pause before each retry
@@ -140,15 +132,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Recent high over last RECENT_HIGH_WINDOW days (for pullback-from-high filter)
     df["high_recent"] = grp["high"].transform(
         lambda s: s.rolling(RECENT_HIGH_WINDOW).max()
-    )
-
-    # Recent average volume over last 2 weeks vs 3-month average volume
-    # (for low-volume-pullback confirmation)
-    df["avg_vol_3m"] = grp["volume"].transform(
-        lambda s: s.rolling(RS_LOOKBACK_DAYS_3M).mean()
-    )
-    df["avg_vol_2w"] = grp["volume"].transform(
-        lambda s: s.rolling(RS_LOOKBACK_DAYS_2W).mean()
     )
 
     return df
@@ -310,13 +293,6 @@ def compute_criteria(
     # normal short-term noise in RS)
     latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.7
 
-    # Criterion 9: low-volume pullback — still computed for transparency in
-    # the CSV, but removed from pass_all on 2026-08-18 (only dropped 10→7
-    # stocks, contributing almost nothing while adding complexity; reinstate
-    # when the market offers deeper pullbacks with clearer volume signals)
-    latest["vol_ratio_2w_vs_3m"] = latest["avg_vol_2w"] / latest["avg_vol_3m"]
-    latest["crit_low_vol_pullback"] = latest["vol_ratio_2w_vs_3m"] < PULLBACK_VOL_RATIO_MAX
-
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
         + ALPHA_WEIGHT_2W * latest["excess_2w"]
@@ -341,7 +317,7 @@ def compute_criteria(
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
         "crit4_rs_combined", "crit_not_extended", "crit_near_sma20",
-        "crit_pullback_from_high", "crit_momentum_accelerating", "crit_low_vol_pullback",
+        "crit_pullback_from_high", "crit_momentum_accelerating",
         "pass_all",
     ]
     for col in bool_cols:
@@ -355,12 +331,12 @@ def compute_criteria(
         "ret_2w", "spx_ret_2w", "excess_2w",
         "ret_3m", "spx_ret_3m", "excess_3m",
         "extension_pct", "dist_from_sma20_pct",
-        "pullback_from_high_pct", "vol_ratio_2w_vs_3m", "alpha_score",
+        "pullback_from_high_pct", "alpha_score",
         "crit1_above_smas", "crit2_sma_rising", "crit3_52w_range",
         "crit4_relative_strength", "crit4b_outperform_2w", "crit4c_relative_strength_3m",
         "rs_gates_passed_count", "crit4_rs_combined",
         "crit_not_extended", "crit_near_sma20",
-        "crit_pullback_from_high", "crit_momentum_accelerating", "crit_low_vol_pullback",
+        "crit_pullback_from_high", "crit_momentum_accelerating",
         "pass_all",
     ]
     return latest[keep_cols].sort_values("ticker").reset_index(drop=True)
