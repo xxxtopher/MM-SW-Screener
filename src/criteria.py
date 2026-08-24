@@ -80,13 +80,13 @@ BELOW_HIGH_MULT = 0.60        # price >= 0.60 x 52wk high, i.e. within 40% of th
 # Anti-extension guardrail: tightened from 1.28 (28%) to 1.25 (25%) on
 # 2026-08-18 to require a genuine pullback from extension - a stock still
 # 28% above its 50-day SMA hasn't really pulled back.
-MAX_EXTENSION_ABOVE_50SMA = 1.25  # close <= 1.25 x sma50
+MAX_EXTENSION_ABOVE_50SMA = 1.28  # close <= 1.25 x sma50
 
 # Pullback zone: price must be between -5% and +5% of the 20-day SMA
 # (directional filter targeting stocks that have retraced back toward the
 # 20-day SMA, not just "near it in any direction").
 SMA20_PULLBACK_LOW = -0.05    # close >= sma20 * (1 - 0.05), i.e. no more than 5% below
-SMA20_PULLBACK_HIGH = 0.1    # close <= sma20 * (1 + 0.1), i.e. no more than 5% above
+SMA20_PULLBACK_HIGH = 0.15    # close <= sma20 * (1 + 0.15), i.e. no more than 5% above
 
 # Pullback-from-high filter: stock must have pulled back 5-20% from its
 # RECENT_HIGH_WINDOW-day high - it was running, pulled back, but hasn't
@@ -291,7 +291,7 @@ def compute_criteria(
     # on 2026-08-18: in a broad bull market, excess_1m > excess_3m is very
     # hard to clear; 0.7x still filters clear decelerators while allowing
     # normal short-term noise in RS)
-    latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.5
+    latest["crit_momentum_accelerating"] = latest["excess_1m"] >= latest["excess_3m"] * 0.3
 
     latest["alpha_score"] = (
         ALPHA_WEIGHT_1M * latest["excess_1m"]
