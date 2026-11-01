@@ -1,6 +1,6 @@
 {
-  "fetched_at_utc": "2026-10-01T09:55:13.654298+00:00",
-  "source_used": "ishares_iwv",
-  "ticker_count": 2585,
-  "primary_source_error": null
+  "fetched_at_utc": "2026-11-01T10:15:34.540770+00:00",
+  "source_used": "wikipedia_sp500_400_600_fallback",
+  "ticker_count": 1503,
+  "primary_source_error": "HTTPSConnectionPool(host='www.blackrock.com', port=443): Read timed out. (read timeout=30)"
 }
